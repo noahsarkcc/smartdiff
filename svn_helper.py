@@ -7,7 +7,12 @@ import subprocess
 import xml.etree.ElementTree as ET
 import os
 import re
+import urllib.parse
 from typing import Optional
+
+
+def _is_url(target: str) -> bool:
+    return target.startswith(("http://", "https://", "svn://", "svn+ssh://", "file://"))
 
 
 _svn_path: Optional[str] = None
@@ -184,7 +189,12 @@ def get_log(path: str, limit: int = 20) -> list:
 
 
 def get_file_at_revision(filepath: str, revision: int) -> Optional[str]:
-    """Get file content at a specific SVN revision. Uses remote URL for reliability."""
+    """Get file content at a specific SVN revision. Uses remote URL for reliability.
+    Accepts either a local working-copy path or a direct repository URL.
+    """
+    if _is_url(filepath):
+        rc, out, _ = _run("cat", "-r", str(revision), filepath, timeout=60)
+        return out if rc == 0 else None
     info = get_svn_info(filepath)
     target = info["url"] if info and info.get("url") else filepath
     rc, out, err = _run("cat", "-r", str(revision), target, timeout=60)
@@ -214,7 +224,12 @@ def get_base_content(filepath: str) -> Optional[str]:
 
 
 def get_file_at_revision_raw(filepath: str, revision: int) -> Optional[bytes]:
-    """Get file content as raw bytes at a specific SVN revision (for binary files like .xlsx)."""
+    """Get file content as raw bytes at a specific SVN revision (for binary files like .xlsx).
+    Accepts either a local working-copy path or a direct repository URL.
+    """
+    if _is_url(filepath):
+        rc, out, _ = _run_raw("cat", "-r", str(revision), filepath, timeout=60)
+        return out if rc == 0 else None
     info = get_svn_info(filepath)
     target = info["url"] if info and info.get("url") else filepath
     rc, out, err = _run_raw("cat", "-r", str(revision), target, timeout=60)
@@ -317,14 +332,19 @@ def get_changed_files_between_revisions(path: str, rev_old: int, rev_new: int,
             if not any(fpath.lower().endswith(e) for e in extensions):
                 continue
             if fpath.startswith(base_url + "/"):
-                fname = fpath[len(base_url) + 1:]
+                rel = fpath[len(base_url) + 1:]
             elif fpath.startswith(base_url):
-                fname = fpath[len(base_url):]
+                rel = fpath[len(base_url):]
             else:
                 continue
+            # SVN URLs percent-encode non-ASCII (e.g. Chinese) names; decode for
+            # local paths and display, keep an encoded-safe URL for direct cat.
+            rel_decoded = urllib.parse.unquote(rel)
+            file_url = base_url + "/" + rel if rel else fpath
             result.append({
-                "path": os.path.join(path, fname) if fname else fpath,
-                "name": os.path.basename(fname) if fname else os.path.basename(fpath),
+                "path": os.path.join(path, rel_decoded) if rel_decoded else fpath,
+                "name": rel_decoded.replace("\\", "/") if rel_decoded else os.path.basename(fpath),
+                "url": file_url,
                 "status": {"M": "modified", "A": "added", "D": "deleted"}.get(status_char, "modified"),
             })
     else:

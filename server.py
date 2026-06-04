@@ -2,7 +2,7 @@
 Flask server for SmartDiff.
 Provides REST API for parsing, diffing, and SVN integration.
 """
-__version__ = "1.3.3"
+__version__ = "1.3.4"
 
 import os
 import sys
@@ -517,7 +517,9 @@ def api_diff_overview():
     results = []
     for item in changed:
         fname = item["name"]
-        fpath = os.path.join(wd, fname)
+        # Prefer the repository URL so files that are not checked out locally
+        # (and non-ASCII names) still resolve correctly.
+        fpath = item.get("url") or os.path.join(wd, fname)
 
         if item["status"] == "deleted":
             results.append({

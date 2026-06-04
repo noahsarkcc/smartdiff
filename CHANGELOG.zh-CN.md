@@ -4,6 +4,13 @@
 
 SmartDiff 的所有重要变更都记录在这里，格式大致遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/) 风格。
 
+## v1.3.4（2026-06-04）
+
+**问题修复**
+- 版本总览：中文（非 ASCII）文件名不再报「Cannot get revision content」。SVN 在远程 URL 中对这类文件名做百分号编码，变更列表现在会解码，使文件名正确显示并能取到版本内容
+- 版本总览改为通过仓库 URL 获取版本内容，本地未 checkout 的文件也能对比
+- `get_file_at_revision` / `get_file_at_revision_raw` 支持直接传入仓库 URL
+
 ## v1.3.3（2026-06-04）
 
 **国际化（i18n）**

@@ -4,6 +4,13 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## v1.3.4 (2026-06-04)
+
+**Bug fixes**
+- Overview mode: files with non-ASCII (e.g. Chinese) names no longer fail with "Cannot get revision content". SVN percent-encodes such names in remote URLs; the change list now decodes them so the file name displays correctly and revision content can be fetched
+- Overview now fetches revision content via the repository URL, so files that are not checked out locally can still be compared
+- `get_file_at_revision` / `get_file_at_revision_raw` accept a repository URL directly
+
 ## v1.3.3 (2026-06-04)
 
 **Internationalization (i18n)**
