@@ -94,7 +94,7 @@ async function init() {
     }
   } catch (e) {
     document.querySelector(".main").innerHTML =
-      `<div class="placeholder"><div class="icon">!</div><div class="text">连接失败: ${e.message}</div></div>`;
+      `<div class="placeholder"><div class="icon">!</div><div class="text">${t('error.connection', e.message)}</div></div>`;
   }
 }
 
@@ -132,7 +132,7 @@ function renderHeader() {
     badge.textContent = `SVN ${cfg.svn_version}`;
     badge.className = "svn-badge";
   } else {
-    badge.textContent = "SVN 未连接";
+    badge.textContent = t('svn.disconnected');
     badge.className = "svn-badge offline";
   }
   renderWorkspaceSelect();
@@ -349,19 +349,19 @@ async function openWorkspaceDir() {
   try {
     await api("/api/open-dir", { method: "POST" });
   } catch (e) {
-    alert("\u6253\u5f00\u76ee\u5f55\u5931\u8d25: " + e.message);
+    alert(t('error.openDir', e.message));
   }
 }
 
 async function removeWorkspace() {
   const cfg = state.config;
   if (!cfg.workspaces || cfg.workspaces.length <= 1) {
-    alert("至少保留一个工作区");
+    alert(t('workspace.keepOne'));
     return;
   }
   const idx = cfg.active_workspace;
   const ws = cfg.workspaces[idx];
-  if (!confirm(`确定删除工作区 "${ws.name}" (${ws.path})？`)) return;
+  if (!confirm(t('workspace.confirmDelete', ws.name, ws.path))) return;
   try {
     const res = await api("/api/workspaces/remove", {
       method: "POST",
@@ -377,7 +377,7 @@ async function removeWorkspace() {
     renderToolbar();
     renderContent();
   } catch (e) {
-    alert("删除工作区失败: " + e.message);
+    alert(t('workspace.deleteFailed', e.message));
   }
 }
 
@@ -400,9 +400,9 @@ async function checkRemoteVersion() {
     const banner = document.getElementById("updateBanner");
     if (data.has_update) {
       const diff = data.remote_revision - data.local_revision;
-      banner.innerHTML = `\u6709 ${diff} \u4e2a\u65b0\u7248\u672c\u53ef\u7528 (r${data.local_revision} \u2192 r${data.remote_revision}) ` +
-        `<button class="btn-update" onclick="doSvnUpdate()">\u66f4\u65b0</button>` +
-        `<button class="btn-dismiss" onclick="dismissBanner()">\u5ffd\u7565</button>`;
+      banner.innerHTML = `${t('update.available', diff, data.local_revision, data.remote_revision)} ` +
+        `<button class="btn-update" onclick="doSvnUpdate()">${t('update.btn')}</button>` +
+        `<button class="btn-dismiss" onclick="dismissBanner()">${t('update.dismiss')}</button>`;
       banner.style.display = "flex";
     } else {
       banner.style.display = "none";
@@ -418,7 +418,7 @@ function dismissBanner() {
 
 async function doSvnUpdate() {
   const banner = document.getElementById("updateBanner");
-  banner.innerHTML = `\u68c0\u67e5\u51b2\u7a81\u4e2d...`;
+  banner.innerHTML = `${t('update.checking')}`;
 
   try {
     const checkData = await api("/api/svn/update", {
@@ -435,12 +435,12 @@ async function doSvnUpdate() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      banner.innerHTML = `\u66f4\u65b0\u5b8c\u6210\uff01\u5df2\u66f4\u65b0 ${result.updated || 0} \u4e2a\u6587\u4ef6`;
+      banner.innerHTML = `${t('update.doneSimple', result.updated || 0)}`;
       setTimeout(() => { banner.style.display = "none"; }, 3000);
       await reloadAfterUpdate();
     }
   } catch (e) {
-    banner.innerHTML = `\u66f4\u65b0\u5931\u8d25: ${e.message} <button class="btn-dismiss" onclick="dismissBanner()">\u5173\u95ed</button>`;
+    banner.innerHTML = `${t('update.failed', e.message)} <button class="btn-dismiss" onclick="dismissBanner()">${t('update.close')}</button>`;
   }
 }
 
@@ -456,27 +456,27 @@ function showUpdateConflictModal(checkData) {
   for (const fname of conflicts) {
     const isXml = fname.toLowerCase().endsWith(".xml");
     const semBtn = isXml
-      ? `<button onclick="openMergeFromConflict('${fname.replace(/'/g, "\\'")}')" title="\u5355\u5143\u683c\u7ea7\u8bed\u4e49\u5408\u5e76" class="btn-merge">\u8bed\u4e49\u5408\u5e76</button>`
+      ? `<button onclick="openMergeFromConflict('${fname.replace(/'/g, "\\'")}')" title="${t('conflict.mergeTitle')}" class="btn-merge">${t('conflict.mergeBtn')}</button>`
       : "";
     conflictHtml += `<div class="conflict-item" data-file="${fname}">
       <span class="fname">${fname}</span>
       <div class="actions">
-        <button onclick="setConflictChoice(this,'mine')" title="\u4fdd\u7559\u672c\u5730\u4fee\u6539">\u4fdd\u7559\u6211\u7684</button>
-        <button onclick="setConflictChoice(this,'theirs')" title="\u7528\u670d\u52a1\u5668\u7248\u672c\u8986\u76d6">\u7528\u6700\u65b0</button>
-        <button onclick="setConflictChoice(this,'skip')" title="\u8df3\u8fc7\u4e0d\u66f4\u65b0">\u8df3\u8fc7</button>
+        <button onclick="setConflictChoice(this,'mine')" title="${t('conflict.keepMineTitle')}">${t('conflict.keepMine')}</button>
+        <button onclick="setConflictChoice(this,'theirs')" title="${t('conflict.useTheirsTitle')}">${t('conflict.useTheirs')}</button>
+        <button onclick="setConflictChoice(this,'skip')" title="${t('conflict.skipTitle')}">${t('conflict.skip')}</button>
         ${semBtn}
       </div>
     </div>`;
   }
 
   overlay.innerHTML = `<div class="update-modal">
-    <h3>\u53d1\u73b0\u51b2\u7a81\u6587\u4ef6</h3>
-    <p class="safe-info">\u65e0\u51b2\u7a81\u6587\u4ef6 ${safeCount} \u4e2a\u5c06\u81ea\u52a8\u66f4\u65b0</p>
+    <h3>${t('conflict.title')}</h3>
+    <p class="safe-info">${t('conflict.safeInfo', safeCount)}</p>
     <div class="conflict-list">${conflictHtml}</div>
     <div class="modal-footer">
-      <button onclick="skipAllConflicts()">\u5168\u90e8\u8df3\u8fc7\u51b2\u7a81\u6587\u4ef6</button>
-      <button class="primary" onclick="executeUpdate()">\u786e\u8ba4\u66f4\u65b0</button>
-      <button onclick="closeUpdateModal()">\u53d6\u6d88</button>
+      <button onclick="skipAllConflicts()">${t('conflict.skipAll')}</button>
+      <button class="primary" onclick="executeUpdate()">${t('conflict.confirmUpdate')}</button>
+      <button onclick="closeUpdateModal()">${t('conflict.cancel')}</button>
     </div>
   </div>`;
 
@@ -519,7 +519,7 @@ async function executeUpdate() {
 
   closeUpdateModal();
   const banner = document.getElementById("updateBanner");
-  banner.innerHTML = `\u6b63\u5728\u66f4\u65b0...`;
+  banner.innerHTML = `${t('update.inProgress')}`;
   banner.style.display = "flex";
 
   try {
@@ -529,16 +529,16 @@ async function executeUpdate() {
       body: JSON.stringify({ skip_files, theirs_files, mine_files }),
     });
     const parts = [];
-    if (result.updated) parts.push(`\u66f4\u65b0 ${result.updated} \u4e2a\u6587\u4ef6`);
-    if (result.skipped.length) parts.push(`\u8df3\u8fc7 ${result.skipped.length} \u4e2a`);
-    if (result.theirs.length) parts.push(`\u7528\u6700\u65b0\u7248 ${result.theirs.length} \u4e2a`);
-    if (result.mine.length) parts.push(`\u4fdd\u7559\u672c\u5730 ${result.mine.length} \u4e2a`);
-    if (result.errors.length) parts.push(`\u9519\u8bef ${result.errors.length}`);
-    banner.innerHTML = `\u66f4\u65b0\u5b8c\u6210: ${parts.join(", ")}`;
+    if (result.updated) parts.push(t('update.doneUpdated', result.updated));
+    if (result.skipped.length) parts.push(t('update.doneSkipped', result.skipped.length));
+    if (result.theirs.length) parts.push(t('update.doneTheirs', result.theirs.length));
+    if (result.mine.length) parts.push(t('update.doneMine', result.mine.length));
+    if (result.errors.length) parts.push(t('update.doneErrors', result.errors.length));
+    banner.innerHTML = `${t('update.doneDetail', parts.join(", "))}`;
     setTimeout(() => { banner.style.display = "none"; }, 5000);
     await reloadAfterUpdate();
   } catch (e) {
-    banner.innerHTML = `\u66f4\u65b0\u5931\u8d25: ${e.message} <button class="btn-dismiss" onclick="dismissBanner()">\u5173\u95ed</button>`;
+    banner.innerHTML = `${t('update.failed', e.message)} <button class="btn-dismiss" onclick="dismissBanner()">${t('update.close')}</button>`;
   }
 }
 
@@ -666,7 +666,7 @@ function renderToolbar() {
 
   if (state.mode === "overview") {
     if (state.overviewLog.length > 0) renderOverviewToolbar();
-    else tb.innerHTML = `<span style="color:var(--text-dim)">加载版本历史中...</span>`;
+    else tb.innerHTML = `<span style="color:var(--text-dim)">${t('toolbar.loadingRevisions')}</span>`;
     return;
   }
 
@@ -679,29 +679,29 @@ function renderToolbar() {
     tb.innerHTML = `
       <span style="font-size:13px;color:var(--text-bright)">${state.selectedFile}</span>
       <div class="spacer" style="flex:1"></div>
-      <button class="btn" onclick="doDiffLocal()" title="\u624b\u52a8\u5237\u65b0">&#8635; \u5237\u65b0</button>`;
+      <button class="btn" onclick="doDiffLocal()" title="${t('toolbar.refreshTitle')}">&#8635; ${t('toolbar.refresh')}</button>`;
   } else if (state.mode === "revision") {
     if (state.revLog.length === 0) {
       tb.innerHTML = `
         <span style="font-size:13px;color:var(--text-bright)">${state.selectedFile}</span>
-        <span style="margin-left:12px;color:var(--text-dim)">暂无 SVN 版本记录</span>`;
+        <span style="margin-left:12px;color:var(--text-dim)">${t('toolbar.noRevisions')}</span>`;
     } else if (state.revLog.length === 1) {
       const e = state.revLog[0];
       tb.innerHTML = `
         <span style="font-size:13px;color:var(--text-bright)">${state.selectedFile}</span>
         <span style="margin-left:12px;font-size:12px;color:var(--text-dim);padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)">r${e.revision} - ${e.author}</span>
-        <span style="font-size:11px;color:var(--text-dim);margin-left:8px">仅有 1 个版本，无法进行版本间对比</span>`;
+        <span style="font-size:11px;color:var(--text-dim);margin-left:8px">${t('toolbar.singleRevision')}</span>`;
     } else {
       const opts = state.revLog.map(e =>
         `<option value="${e.revision}">r${e.revision} - ${e.author} - ${e.message.substring(0, 30)}</option>`
       ).join("");
       tb.innerHTML = `
         <span style="font-size:13px;color:var(--text-bright)">${state.selectedFile}</span>
-        <label>旧版本:</label>
+        <label>${t('toolbar.oldRev')}</label>
         <select id="revOld">${opts}</select>
-        <label>新版本:</label>
+        <label>${t('toolbar.newRev')}</label>
         <select id="revNew">${opts}</select>
-        <button class="btn primary" onclick="doDiffRevision()">对比版本</button>`;
+        <button class="btn primary" onclick="doDiffRevision()">${t('toolbar.compare')}</button>`;
       document.getElementById("revOld").value = state.revLog[1].revision;
       document.getElementById("revNew").value = state.revLog[0].revision;
     }
@@ -709,7 +709,7 @@ function renderToolbar() {
     tb.innerHTML = `
       <span style="font-size:13px;color:var(--text-bright)">${state.selectedFile}</span>
       <div style="flex:1"></div>
-      <span style="font-size:12px;color:var(--text-dim)">浏览模式 - 查看文件内容</span>`;
+      <span style="font-size:12px;color:var(--text-dim)">${t('toolbar.browseHint')}</span>`;
   } else if (state.mode === "merge") {
     renderMergeToolbar();
   }
@@ -730,9 +730,9 @@ function renderMergeToolbar() {
     const resolved = total - remaining;
     const pct = total > 0 ? Math.round((resolved / total) * 100) : 100;
     const cls = remaining > 0 ? "merge-stat-pending" : "merge-stat-ok";
-    stats = `<span class="merge-stats ${cls}">自动 ${s.auto_resolved} · 冲突 ${total}${remaining > 0 ? ` · 待解决 ${remaining}` : "（全部解决）"}</span>`;
+    stats = `<span class="merge-stats ${cls}">${t('merge.statsAuto', s.auto_resolved)} · ${t('merge.statsConflict', total)}${remaining > 0 ? ` · ${t('merge.statsUnresolved', remaining)}` : t('merge.statsAllResolved')}</span>`;
     progress = total > 0
-      ? `<div class="merge-progress" title="${resolved}/${total} 已解决">
+      ? `<div class="merge-progress" title="${resolved}/${total} ${t('merge.resolved')}">
            <div class="merge-progress-bar ${remaining === 0 ? "done" : ""}" style="width:${pct}%"></div>
            <span class="merge-progress-text">${pct}%</span>
          </div>`
@@ -740,32 +740,32 @@ function renderMergeToolbar() {
     if (remaining > 0) applyBtnDisabled = "disabled";
 
     const filterActive = state.mergeOnlyConflicts ? " active" : "";
-    const expandLabel = state.mergeExpandMode === "all" ? "全部折叠"
-      : state.mergeExpandMode === "none" ? "智能展开"
-      : "全部展开";
+    const expandLabel = state.mergeExpandMode === "all" ? t('merge.collapseAll')
+      : state.mergeExpandMode === "none" ? t('merge.smartExpand')
+      : t('merge.expandAll');
     extras = `
-      <button class="btn merge-toolbar-toggle${filterActive}" onclick="toggleMergeFilter()" title="只显示需要手动处理的项">
-        ${state.mergeOnlyConflicts ? "✓ " : ""}只看待解决${remaining > 0 ? ` (${remaining})` : ""}
+      <button class="btn merge-toolbar-toggle${filterActive}" onclick="toggleMergeFilter()" title="${t('merge.filterTitle')}">
+        ${state.mergeOnlyConflicts ? "✓ " : ""}${t('merge.filterLabel')}${remaining > 0 ? ` (${remaining})` : ""}
       </button>
-      <button class="btn merge-toolbar-toggle" onclick="cycleMergeExpandMode()" title="切换 智能/全展开/全折叠">
+      <button class="btn merge-toolbar-toggle" onclick="cycleMergeExpandMode()" title="${t('merge.toggleExpandTitle')}">
         ${expandLabel}
       </button>`;
   }
 
   const fname = state.selectedFile
     ? `<span style="font-size:13px;color:var(--text-bright)">${state.selectedFile}</span>`
-    : `<span style="font-size:13px;color:var(--text-dim)">未选择文件</span>`;
+    : `<span style="font-size:13px;color:var(--text-dim)">${t('merge.noFile')}</span>`;
 
   tb.innerHTML = `
     ${fname}
-    <label>对比版本:</label>
-    <input type="text" id="mergeTheirsRev" value="${state.mergeTheirsRev}" style="width:80px" title="HEAD 或具体版本号" />
-    <button class="btn" onclick="doMergePreview()">刷新</button>
+    <label>${t('merge.compareVersion')}</label>
+    <input type="text" id="mergeTheirsRev" value="${state.mergeTheirsRev}" style="width:80px" title="${t('merge.revInputTitle')}" />
+    <button class="btn" onclick="doMergePreview()">${t('merge.refresh')}</button>
     ${stats}
     ${progress}
     ${extras}
     <div style="flex:1"></div>
-    <button class="btn primary" id="applyMergeBtn" onclick="applyMerge()" ${applyBtnDisabled}>应用合并并保存</button>`;
+    <button class="btn primary" id="applyMergeBtn" onclick="applyMerge()" ${applyBtnDisabled}>${t('merge.applyAndSave')}</button>`;
 
   const revInput = document.getElementById("mergeTheirsRev");
   if (revInput) {
@@ -853,14 +853,14 @@ function renderOverviewToolbar() {
     `<option value="${e.revision}">r${e.revision} - ${e.author} - ${e.message.substring(0, 40)}</option>`
   ).join("");
   tb.innerHTML = `
-    <label>旧版本:</label>
+    <label>${t('toolbar.oldRev')}</label>
     <select id="ovRevOld">${opts}</select>
-    <label>新版本:</label>
+    <label>${t('toolbar.newRev')}</label>
     <select id="ovRevNew">${opts}</select>
-    <button class="btn primary" onclick="doOverview()">对比版本</button>
+    <button class="btn primary" onclick="doOverview()">${t('toolbar.compare')}</button>
     <div style="flex:1"></div>
-    <button class="btn ${state.overviewFilter === 'all' ? 'primary' : ''}" onclick="setOverviewFilter('all')">全部文件</button>
-    <button class="btn ${state.overviewFilter === 'data-only' ? 'primary' : ''}" onclick="setOverviewFilter('data-only')">仅数据变更</button>`;
+    <button class="btn ${state.overviewFilter === 'all' ? 'primary' : ''}" data-filter-key="all" onclick="setOverviewFilter('all')">${t('overview.allFiles')}</button>
+    <button class="btn ${state.overviewFilter === 'data-only' ? 'primary' : ''}" data-filter-key="data-only" onclick="setOverviewFilter('data-only')">${t('overview.dataOnly')}</button>`;
   if (state.overviewLog.length >= 2) {
     document.getElementById("ovRevOld").value = state.overviewLog[1].revision;
     document.getElementById("ovRevNew").value = state.overviewLog[0].revision;
@@ -956,7 +956,7 @@ function renderContent() {
   const main = document.getElementById("content");
 
   if (state.loading) {
-    main.innerHTML = `<div class="loading"><img class="icon-img pixel-bounce" src="/static/img/miku.svg" alt="" />\u52a0\u8f7d\u4e2d...</div>`;
+    main.innerHTML = `<div class="loading"><img class="icon-img pixel-bounce" src="/static/img/miku.svg" alt="" />${t('diff.loading')}</div>`;
     return;
   }
 
@@ -964,8 +964,8 @@ function renderContent() {
     if (!state.overviewFiles) {
       main.innerHTML = `<div class="placeholder">
         <img class="icon-img" src="/static/img/miku.svg" alt="" />
-        <div class="text">\u9009\u62e9\u4e24\u4e2a\u7248\u672c\u540e\u70b9\u51fb"\u5bf9\u6bd4\u7248\u672c"</div>
-        <div class="hint">类似 GitHub 的版本间文件变更总览</div>
+        <div class="text">${t('placeholder.overview')}</div>
+        <div class="hint">${t('placeholder.overviewHint')}</div>
       </div>`;
       return;
     }
@@ -977,15 +977,15 @@ function renderContent() {
     if (!state.selectedFile) {
       main.innerHTML = `<div class="placeholder">
         <img class="icon-img" src="/static/img/miku.svg" alt="" />
-        <div class="text">\u9009\u62e9\u4e00\u4e2a .xml \u6587\u4ef6\u5f00\u59cb\u4e09\u65b9\u8bed\u4e49\u5408\u5e76</div>
-        <div class="hint">BASE (\u7248\u672c\u5e93\u539f\u59cb) / MINE (\u672c\u5730\u4fee\u6539) / THEIRS (\u8fdc\u7a0b HEAD)</div>
+        <div class="text">${t('placeholder.merge')}</div>
+        <div class="hint">${t('placeholder.mergeHint')}</div>
       </div>`;
       return;
     }
     if (!state.mergeData) {
       main.innerHTML = `<div class="placeholder">
         <img class="icon-img" src="/static/img/miku.svg" alt="" />
-        <div class="text">\u52a0\u8f7d\u4e09\u65b9\u5408\u5e76\u9884\u89c8</div>
+        <div class="text">${t('placeholder.mergeLoading')}</div>
       </div>`;
       return;
     }
@@ -1000,8 +1000,8 @@ function renderContent() {
   if (!state.selectedFile) {
     main.innerHTML = `<div class="placeholder">
       <img class="icon-img" src="/static/img/miku.svg" alt="" />
-      <div class="text">\u9009\u62e9\u5de6\u4fa7\u6587\u4ef6\u5f00\u59cb\u5bf9\u6bd4</div>
-      <div class="hint">支持 本地变更 / 版本对比 / 浏览 三种模式</div>
+      <div class="text">${t('placeholder.text')}</div>
+      <div class="hint">${t('placeholder.hint')}</div>
     </div>`;
     return;
   }
@@ -1044,7 +1044,7 @@ function getDiffBlocksHtml(adds, dels, mods) {
   }
   
   let emptyB = 5 - (addB + delB + modB);
-  let html = `<span class="diff-blocks" title="${adds} 新增, ${dels} 删除, ${mods} 修改">`;
+  let html = `<span class="diff-blocks" title="${t('diff.blockTitle', adds, dels, mods)}">`;
   for(let i=0; i<addB; i++) html += `<span class="block add"></span>`;
   for(let i=0; i<delB; i++) html += `<span class="block del"></span>`;
   for(let i=0; i<modB; i++) html += `<span class="block mod"></span>`;
@@ -1066,8 +1066,8 @@ function renderDiffView(container) {
     const sd = diff.sheets[name];
     const active = state.activeSheet === name ? " active" : "";
     let badge = "";
-    if (sd.status === "added") badge = `<span class="badge added">新增</span>`;
-    else if (sd.status === "removed") badge = `<span class="badge removed">删除</span>`;
+    if (sd.status === "added") badge = `<span class="badge added">${t('diff.added')}</span>`;
+    else if (sd.status === "removed") badge = `<span class="badge removed">${t('diff.removed')}</span>`;
     else if (sd.status === "modified") {
       const parts = [];
       if (sd.modified_cells.length > 0) parts.push(`<span class="badge changed">~${sd.modified_cells.length}</span>`);
@@ -1081,22 +1081,22 @@ function renderDiffView(container) {
 
   // Stats panel
   html += `<div class="diff-stats">`;
-  html += `<span class="diff-stats-label">${diff.old_label || "旧"} → ${diff.new_label || "新"}</span>`;
+  html += `<span class="diff-stats-label">${diff.old_label || t('diff.old')} → ${diff.new_label || t('diff.new')}</span>`;
   if (summary.has_changes) {
     html += `<span class="diff-stats-counts">`;
     if (summary.total_added_rows > 0)
-      html += `<span class="stat-added">+${summary.total_added_rows} 行</span>`;
+      html += `<span class="stat-added">+${summary.total_added_rows} ${t('diff.unitRows')}</span>`;
     if (summary.total_removed_rows > 0)
-      html += `<span class="stat-removed">-${summary.total_removed_rows} 行</span>`;
+      html += `<span class="stat-removed">-${summary.total_removed_rows} ${t('diff.unitRows')}</span>`;
     if (summary.total_modified_cells > 0)
-      html += `<span class="stat-modified">~${summary.total_modified_cells} 格</span>`;
+      html += `<span class="stat-modified">~${summary.total_modified_cells} ${t('diff.unitCells')}</span>`;
     
     html += getDiffBlocksHtml(summary.total_added_rows, summary.total_removed_rows, summary.total_modified_cells);
     const total = summary.total_added_rows + summary.total_removed_rows + summary.total_modified_cells;
-    html += `<span class="stat-total">${total} 处变更</span>`;
+    html += `<span class="stat-total">${t('diff.totalChanges', total)}</span>`;
     html += `</span>`;
   } else {
-    html += `<span class="no-changes">无数据变更（仅元数据差异）</span>`;
+    html += `<span class="no-changes">${t('diff.metaOnly')}</span>`;
   }
   html += `</div>`;
 
@@ -1333,7 +1333,7 @@ function _appendRowsBatch(tbodyId, rows, colLetters, headers, start) {
 
 function renderDiffTable(sheetDiff) {
   const headers = sheetDiff.new_headers.length > 0 ? sheetDiff.new_headers : sheetDiff.old_headers;
-  if (headers.length === 0) return `<div class="placeholder"><div class="text">该 Sheet 无数据</div></div>`;
+  if (headers.length === 0) return `<div class="placeholder"><div class="text">${t('diff.sheetNoData')}</div></div>`;
 
   const allRows = [];
   const seenRows = new Set();
@@ -1348,7 +1348,7 @@ function renderDiffTable(sheetDiff) {
   allRows.sort((a, b) => a._row - b._row);
 
   if (allRows.length === 0) {
-    return `<div class="summary-bar"><span class="no-changes">该 Sheet 无变更</span></div>`;
+    return `<div class="summary-bar"><span class="no-changes">${t('diff.sheetNoChanges')}</span></div>`;
   }
 
   const tid = `dtb_${++_tableIdCounter}`;
@@ -1380,7 +1380,7 @@ function renderBrowseView(container) {
   }
   html += `</div>`;
 
-  html += `<div class="summary-bar"><span>浏览模式 · 解析耗时 ${parsed._parse_ms}ms</span></div>`;
+  html += `<div class="summary-bar"><span>${t('diff.browseTime', parsed._parse_ms)}</span></div>`;
 
   if (state.activeSheet && parsed.sheets[state.activeSheet]) {
     const sheet = parsed.sheets[state.activeSheet];
@@ -1448,13 +1448,8 @@ async function loadOverviewLog() {
 function setOverviewFilter(filter) {
   state.overviewFilter = filter;
   renderContent();
-  const btns = document.querySelectorAll("#toolbar .btn:not(.primary)");
-  document.querySelectorAll("#toolbar .btn").forEach(b => {
-    if (b.textContent === "全部文件" || b.textContent === "仅数据变更") {
-      b.classList.toggle("primary",
-        (b.textContent === "全部文件" && filter === "all") ||
-        (b.textContent === "仅数据变更" && filter === "data-only"));
-    }
+  document.querySelectorAll("#toolbar .btn[data-filter-key]").forEach(b => {
+    b.classList.toggle("primary", b.dataset.filterKey === filter);
   });
 }
 
@@ -1551,15 +1546,15 @@ function renderOverviewView(container) {
 
   let html = `<div class="overview-summary">`;
   html += `<span>r${ov.rev_old} \u2192 r${ov.rev_new}</span>`;
-  html += `<span class="stat">\u5171 ${ov.total_files} \u4e2a\u6587\u4ef6\u53d8\u66f4</span>`;
-  html += `<span class="stat">\u5176\u4e2d ${ov.data_changed_files} \u4e2a\u6709\u6570\u636e\u53d8\u66f4</span>`;
+  html += `<span class="stat">${t('overview.totalFiles', ov.total_files)}</span>`;
+  html += `<span class="stat">${t('overview.dataChanged', ov.data_changed_files)}</span>`;
   if (state.overviewFilter === "data-only") {
-    html += `<span class="stat">\u5f53\u524d\u663e\u793a ${files.length} \u4e2a</span>`;
+    html += `<span class="stat">${t('overview.showing', files.length)}</span>`;
   }
   html += `</div>`;
 
   if (files.length === 0) {
-    html += `<div class="placeholder"><div class="text">\u65e0\u5339\u914d\u7684\u6587\u4ef6</div></div>`;
+    html += `<div class="placeholder"><div class="text">${t('overview.noMatch')}</div></div>`;
     container.innerHTML = html;
     return;
   }
@@ -1574,13 +1569,13 @@ function renderOverviewView(container) {
 
     let changeSummary = "";
     if (f.status === "deleted") {
-      changeSummary = `<span class="ov-badge del">\u5df2\u5220\u9664</span>`;
+      changeSummary = `<span class="ov-badge del">${t('overview.deleted')}</span>`;
     } else if (f.status === "added") {
-      changeSummary = `<span class="ov-badge add">\u65b0\u589e</span>`;
+      changeSummary = `<span class="ov-badge add">${t('overview.added')}</span>`;
     } else if (f.status === "error") {
-      changeSummary = `<span class="ov-badge err">\u9519\u8bef: ${escHtml(f.error || "")}</span>`;
+      changeSummary = `<span class="ov-badge err">${t('overview.error', escHtml(f.error || ""))}</span>`;
     } else if (!s.has_changes) {
-      changeSummary = `<span class="ov-badge meta">\u4ec5\u5143\u6570\u636e</span>`;
+      changeSummary = `<span class="ov-badge meta">${t('overview.metaOnly')}</span>`;
     } else {
       const parts = [];
       if (s.total_added_rows > 0) parts.push(`<span class="ov-badge add">+${s.total_added_rows}</span>`);
@@ -1625,8 +1620,8 @@ function renderOverviewFileDetail(f) {
       const sd = diff.sheets[name];
       const active = activeSheet === name ? " active" : "";
       let badge = "";
-      if (sd.status === "added") badge = `<span class="badge added">\u65b0\u589e</span>`;
-      else if (sd.status === "removed") badge = `<span class="badge removed">\u5220\u9664</span>`;
+      if (sd.status === "added") badge = `<span class="badge added">${t('diff.added')}</span>`;
+      else if (sd.status === "removed") badge = `<span class="badge removed">${t('diff.removed')}</span>`;
       else if (sd.status === "modified") {
         const parts = [];
         if (sd.modified_cells.length > 0) parts.push(`<span class="badge changed">~${sd.modified_cells.length}</span>`);
@@ -1657,7 +1652,7 @@ function escHtml(s) {
 async function doMergePreview() {
   if (!state.selectedFile) return;
   if (!state.selectedFile.toLowerCase().endsWith(".xml")) {
-    state.mergeData = { error: "语义合并仅支持 .xml (SpreadsheetML 2003) 文件" };
+    state.mergeData = { error: t('merge.xmlOnly') };
     renderToolbar();
     renderContent();
     return;
@@ -1688,7 +1683,7 @@ async function doMergePreview() {
 async function applyMerge() {
   if (!state.mergeData || !state.selectedFile) return;
   if (countRemainingConflicts() > 0) {
-    alert("还有未解决的冲突，请先全部决议");
+    alert(t('merge.unresolvedAlert'));
     return;
   }
 
@@ -1706,7 +1701,7 @@ async function applyMerge() {
         mark_resolved: fromSvn,
       }),
     });
-    const msg = `合并完成，已写回 ${result.applied} 项决议${result.svn_resolved ? "；SVN 冲突已标记为已解决" : ""}`;
+    const msg = t('merge.applySuccess', result.applied) + (result.svn_resolved ? t('merge.svnResolved') : "");
     state.mergeFromSvnConflict = false;
     alert(msg);
     setMode("local");
@@ -1714,7 +1709,7 @@ async function applyMerge() {
     loadModifiedFiles();
     loadModifiedClassify();
   } catch (e) {
-    alert("应用合并失败: " + e.message);
+    alert(t('merge.applyFailed', e.message));
   }
 }
 
@@ -1774,7 +1769,7 @@ function setCellChoice(sheetName, rowKey, col, choice, customValue) {
   else if (choice === "base") cell.resolved = cell.base;
   else if (choice === "custom") {
     const v = customValue !== undefined ? customValue
-      : prompt(`输入自定义值 (${col}${row.row_num_mine || row.row_num_theirs || ""}):`, cell.resolved || cell.mine || cell.theirs);
+      : prompt(t('merge.customPrompt', col, row.row_num_mine || row.row_num_theirs || ""), cell.resolved || cell.mine || cell.theirs);
     if (v === null) return;
     cell.resolved = v;
   }
@@ -1794,36 +1789,42 @@ function setRowChoice(sheetName, rowKey, choice) {
   renderMergeView(document.getElementById("content"));
 }
 
-const ROW_STATUS_LABELS = {
-  modified: "修改",
-  added_mine: "新增（仅我）",
-  added_theirs: "新增（仅远程）",
-  added_both_same: "双方新增 · 相同",
-  added_both_diff: "双方新增 · 不同",
-  removed_mine: "我已删除",
-  removed_theirs: "远程已删除",
-  removed_both: "双方删除",
-  mine_del_theirs_mod: "⚠ 我删除 / 远程修改",
-  mine_mod_theirs_del: "⚠ 我修改 / 远程删除",
-};
+function getRowStatusLabel(status) {
+  const map = {
+    modified: t('merge.row.modified'),
+    added_mine: t('merge.row.addedMine'),
+    added_theirs: t('merge.row.addedTheirs'),
+    added_both_same: t('merge.row.addedBothSame'),
+    added_both_diff: t('merge.row.addedBothDiff'),
+    removed_mine: t('merge.row.removedMine'),
+    removed_theirs: t('merge.row.removedTheirs'),
+    removed_both: t('merge.row.removedBoth'),
+    mine_del_theirs_mod: t('merge.row.mineDelTheirsMod'),
+    mine_mod_theirs_del: t('merge.row.mineModTheirsDel'),
+  };
+  return map[status] || status;
+}
 
-const CELL_STATUS_LABELS = {
-  unchanged: "未变",
-  auto_mine: "自动 · 取本地",
-  auto_theirs: "自动 · 取远程",
-  auto_both: "自动 · 双方同改",
-  conflict: "⚠ 冲突",
-};
+function getCellStatusLabel(status) {
+  const map = {
+    unchanged: t('merge.cell.unchanged'),
+    auto_mine: t('merge.cell.autoMine'),
+    auto_theirs: t('merge.cell.autoTheirs'),
+    auto_both: t('merge.cell.autoBoth'),
+    conflict: t('merge.cell.conflict'),
+  };
+  return map[status] || status;
+}
 
 function renderMergeView(container) {
   const md = state.mergeData;
   if (!md.sheets) {
-    container.innerHTML = `<div class="placeholder"><div class="text">无可合并内容</div></div>`;
+    container.innerHTML = `<div class="placeholder"><div class="text">${t('merge.noContent')}</div></div>`;
     return;
   }
   const sheetNames = Object.keys(md.sheets);
   if (sheetNames.length === 0) {
-    container.innerHTML = `<div class="placeholder"><div class="text">该文件无 Sheet</div></div>`;
+    container.innerHTML = `<div class="placeholder"><div class="text">${t('merge.noSheet')}</div></div>`;
     return;
   }
   if (!state.activeSheet || !md.sheets[state.activeSheet]) {
@@ -1836,8 +1837,8 @@ function renderMergeView(container) {
     const sd = md.sheets[name];
     const active = state.activeSheet === name ? " active" : "";
     let badge = "";
-    if (sd.conflict_count > 0) badge = `<span class="badge changed">${sd.conflict_count}冲突</span>`;
-    else if (sd.auto_resolved_count > 0) badge = `<span class="badge added">${sd.auto_resolved_count}自动</span>`;
+    if (sd.conflict_count > 0) badge = `<span class="badge changed">${t('merge.conflictBadge', sd.conflict_count)}</span>`;
+    else if (sd.auto_resolved_count > 0) badge = `<span class="badge added">${t('merge.autoBadge', sd.auto_resolved_count)}</span>`;
     html += `<button class="sheet-tab${active}" onclick="setActiveSheet('${name.replace(/'/g, "\\'")}')">${name}${badge}</button>`;
   }
   html += `</div>`;
@@ -1845,9 +1846,9 @@ function renderMergeView(container) {
   html += `<div class="merge-versions-bar">
     <span class="ver base">${escHtml(md.base_label || "BASE")}</span>
     <span class="ver-sep">←</span>
-    <span class="ver mine">${escHtml(md.mine_label || "本地")}</span>
+    <span class="ver mine">${escHtml(md.mine_label || t('merge.labelMine'))}</span>
     <span class="ver-sep">·</span>
-    <span class="ver theirs">${escHtml(md.theirs_label || "远程")}</span>
+    <span class="ver theirs">${escHtml(md.theirs_label || t('merge.labelTheirs'))}</span>
   </div>`;
   html += `</div>`;
 
@@ -1860,20 +1861,20 @@ function renderMergeView(container) {
 
 function renderMergeSheet(sheetName, sheet) {
   if (sheet.sheet_status === "added_theirs") {
-    return `<div class="placeholder"><div class="text">该 Sheet 仅存在于远程，整表新增；请直接更新该文件</div></div>`;
+    return `<div class="placeholder"><div class="text">${t('merge.sheetOnlyTheirs')}</div></div>`;
   }
   if (sheet.sheet_status === "mine_only") {
-    return `<div class="placeholder"><div class="text">该 Sheet 仅存在于本地，无需合并</div></div>`;
+    return `<div class="placeholder"><div class="text">${t('merge.sheetOnlyMine')}</div></div>`;
   }
   if (!sheet.rows || sheet.rows.length === 0) {
-    return `<div class="merge-empty"><div class="text">该 Sheet 无任何变更</div></div>`;
+    return `<div class="merge-empty"><div class="text">${t('merge.sheetNoChanges')}</div></div>`;
   }
 
   let html = `<div class="merge-container">`;
   if (sheet.id_column) {
-    html += `<div class="merge-id-hint">ID 列: <code>${sheet.id_column}</code> · 共 ${sheet.rows.length} 行变更</div>`;
+    html += `<div class="merge-id-hint">${t('merge.idInfo', sheet.id_column, sheet.rows.length)}</div>`;
   } else {
-    html += `<div class="merge-id-hint warn">⚠ 未检测到 ID 列，按行号匹配（精度较低）</div>`;
+    html += `<div class="merge-id-hint warn">${t('merge.noIdColumn')}</div>`;
   }
 
   let visible = 0;
@@ -1885,7 +1886,7 @@ function renderMergeSheet(sheetName, sheet) {
   }
 
   if (visible === 0 && state.mergeOnlyConflicts) {
-    html += `<div class="merge-empty"><div class="text">没有需要手动处理的项 ✓</div><div class="text" style="font-size:11px;color:var(--text-dim);margin-top:6px">取消「只看待解决」可查看自动决议项</div></div>`;
+    html += `<div class="merge-empty"><div class="text">${t('merge.nothingToResolve')}</div><div class="text" style="font-size:11px;color:var(--text-dim);margin-top:6px">${t('merge.cancelFilterHint')}</div></div>`;
   } else {
     html += html_rows;
   }
@@ -1895,7 +1896,7 @@ function renderMergeSheet(sheetName, sheet) {
 
 function renderMergeRow(sheetName, sheet, row) {
   const status = row.status;
-  const label = ROW_STATUS_LABELS[status] || status;
+  const label = getRowStatusLabel(status);
   const isConflict = row.is_row_conflict;
   const needsAttn = rowNeedsAttention(row);
   const expanded = isRowExpanded(sheetName, row);
@@ -1936,16 +1937,16 @@ function renderMergeRow(sheetName, sheet, row) {
       }
       if (changedCells.length > 0) {
         html += `<div class="merge-row-detail">
-          <div class="merge-detail-label">变更详情 (${changedCells.length})</div>
+          <div class="merge-detail-label">${t('merge.changeDetails', changedCells.length)}</div>
           <div class="merge-cells">${changedCells.join("")}</div>
         </div>`;
       }
     } else if (["added_both_diff"].includes(status)) {
       html += `<div class="merge-row-detail">
-        <div class="merge-detail-label">候选版本对比</div>
+        <div class="merge-detail-label">${t('merge.candidateCompare')}</div>
         <div class="row-side-by-side">
-          ${renderRowPreviewHorizontal(sheet, row, "mine", "本地版本")}
-          ${renderRowPreviewHorizontal(sheet, row, "theirs", "远程版本")}
+          ${renderRowPreviewHorizontal(sheet, row, "mine", t('merge.mineVersion'))}
+          ${renderRowPreviewHorizontal(sheet, row, "theirs", t('merge.theirsVersion'))}
         </div>
       </div>`;
     }
@@ -2007,7 +2008,7 @@ function renderRowFullTable(sheetName, sheet, row) {
     let v;
     let cellCls = "rt-td";
     let badge = "";
-    let titleHint = `本地: ${cell.mine || "（空）"}\n远程: ${cell.theirs || "（空）"}\n基础: ${cell.base || "（空）"}`;
+    let titleHint = `${t('merge.cellTooltipMine', cell.mine || t('merge.emptyValue'))}\n${t('merge.cellTooltipTheirs', cell.theirs || t('merge.emptyValue'))}\n${t('merge.cellTooltipBase', cell.base || t('merge.emptyValue'))}`;
 
     if (eff.side === "resolved") {
       // 行决议交给单元格层：根据每个 cell 的状态着色 + 加 badge
@@ -2015,21 +2016,21 @@ function renderRowFullTable(sheetName, sheet, row) {
       if (cell.status === "unchanged") {
         // 不加 badge
       } else if (cell.status === "auto_mine") {
-        cellCls += " val-mine"; badge = `<span class="rt-tag tag-mine" title="自动·取本地">本</span>`;
+        cellCls += " val-mine"; badge = `<span class="rt-tag tag-mine" title="${t('merge.autoMineTip')}">${t('merge.badgeMine')}</span>`;
       } else if (cell.status === "auto_theirs") {
-        cellCls += " val-theirs"; badge = `<span class="rt-tag tag-theirs" title="自动·取远程">远</span>`;
+        cellCls += " val-theirs"; badge = `<span class="rt-tag tag-theirs" title="${t('merge.autoTheirsTip')}">${t('merge.badgeTheirs')}</span>`;
       } else if (cell.status === "auto_both") {
-        cellCls += " val-both"; badge = `<span class="rt-tag tag-both" title="双方同改">=</span>`;
+        cellCls += " val-both"; badge = `<span class="rt-tag tag-both" title="${t('merge.autoBothTip')}">=</span>`;
       } else if (cell.status === "conflict") {
         if (cell.resolved !== null && cell.resolved !== undefined) {
           let src = "?", sCls = "tag-mine";
-          if (cell.resolved === cell.mine) { cellCls += " val-mine"; src = "本"; sCls = "tag-mine"; }
-          else if (cell.resolved === cell.theirs) { cellCls += " val-theirs"; src = "远"; sCls = "tag-theirs"; }
+          if (cell.resolved === cell.mine) { cellCls += " val-mine"; src = t('merge.badgeMine'); sCls = "tag-mine"; }
+          else if (cell.resolved === cell.theirs) { cellCls += " val-theirs"; src = t('merge.badgeTheirs'); sCls = "tag-theirs"; }
           else { cellCls += " val-custom"; src = "✎"; sCls = "tag-custom"; }
-          badge = `<span class="rt-tag ${sCls}" title="冲突已解决">${src}</span>`;
+          badge = `<span class="rt-tag ${sCls}" title="${t('merge.resolvedTip')}">${src}</span>`;
         } else {
           cellCls += " val-conflict";
-          badge = `<span class="rt-tag tag-warn" title="待解决冲突">!</span>`;
+          badge = `<span class="rt-tag tag-warn" title="${t('merge.unresolvedTip')}">!</span>`;
         }
       }
     } else {
@@ -2040,9 +2041,9 @@ function renderRowFullTable(sheetName, sheet, row) {
       if (sideCls) cellCls += " " + sideCls;
       // 与 base 对比标识
       if (eff.side === "mine" && cell.mine !== cell.base) {
-        badge = `<span class="rt-tag tag-mine" title="本地修改">改</span>`;
+        badge = `<span class="rt-tag tag-mine" title="${t('merge.localModified')}">${t('merge.badgeModified')}</span>`;
       } else if (eff.side === "theirs" && cell.theirs !== cell.base) {
-        badge = `<span class="rt-tag tag-theirs" title="远程修改">改</span>`;
+        badge = `<span class="rt-tag tag-theirs" title="${t('merge.remoteModified')}">${t('merge.badgeModified')}</span>`;
       }
     }
 
@@ -2050,8 +2051,8 @@ function renderRowFullTable(sheetName, sheet, row) {
   }).join("");
 
   let footnote = "";
-  if (eff.deleted) footnote = `<div class="rt-footnote">该行将被删除</div>`;
-  else if (eff.ignored) footnote = `<div class="rt-footnote">该行将被忽略（不引入合并结果）</div>`;
+  if (eff.deleted) footnote = `<div class="rt-footnote">${t('merge.rowWillDelete')}</div>`;
+  else if (eff.ignored) footnote = `<div class="rt-footnote">${t('merge.rowWillIgnore')}</div>`;
 
   return `<div class="merge-row-table">
     <table class="rt"><thead><tr>${headerCells}</tr></thead><tbody><tr class="${trCls.join(" ")}">${dataCells}</tr></tbody></table>
@@ -2071,14 +2072,14 @@ function renderRowDecisionButtonsInner(sheetName, row) {
     return `<button class="row-decision-btn${active}${k}" title="${title || ""}" onclick="setRowChoice('${sk}','${rk}','${choice}')">${label}</button>`;
   };
 
-  if (status === "added_theirs") return btn("accept_theirs", "接受远程", "引入远程新增的行", "theirs") + btn("keep_mine", "忽略", "不引入远程新增的行", "mine");
-  if (status === "added_mine") return btn("keep_mine", "保留新增", "", "mine");
-  if (status === "removed_mine") return btn("keep_mine_delete", "保留删除", "", "delete") + btn("accept_theirs", "恢复", "接受远程：恢复此行", "theirs");
-  if (status === "removed_theirs") return btn("accept_theirs_delete", "接受删除", "", "delete") + btn("keep_mine", "保留", "保留我的此行", "mine");
-  if (status === "removed_both") return btn("delete", "确认删除", "", "delete");
-  if (status === "added_both_diff") return btn("keep_mine", "保留我的", "", "mine") + btn("accept_theirs", "用远程", "", "theirs") + btn("merge", "按单元格", "进入逐单元格合并模式", "merge");
-  if (status === "mine_del_theirs_mod") return btn("keep_mine_delete", "保留删除", "", "delete") + btn("accept_theirs", "恢复+接受远程", "", "theirs");
-  if (status === "mine_mod_theirs_del") return btn("keep_mine", "保留修改", "", "mine") + btn("accept_theirs_delete", "接受删除", "", "delete");
+  if (status === "added_theirs") return btn("accept_theirs", t('merge.btn.acceptTheirs'), t('merge.btn.acceptTheirsTitle'), "theirs") + btn("keep_mine", t('merge.btn.ignore'), t('merge.btn.ignoreTitle'), "mine");
+  if (status === "added_mine") return btn("keep_mine", t('merge.btn.keepAdded'), "", "mine");
+  if (status === "removed_mine") return btn("keep_mine_delete", t('merge.btn.keepDelete'), "", "delete") + btn("accept_theirs", t('merge.btn.restore'), t('merge.btn.restoreTitle'), "theirs");
+  if (status === "removed_theirs") return btn("accept_theirs_delete", t('merge.btn.acceptDelete'), "", "delete") + btn("keep_mine", t('merge.btn.keep'), t('merge.btn.keepMineTitle'), "mine");
+  if (status === "removed_both") return btn("delete", t('merge.btn.confirmDelete'), "", "delete");
+  if (status === "added_both_diff") return btn("keep_mine", t('merge.btn.keepMine'), "", "mine") + btn("accept_theirs", t('merge.btn.useTheirs'), "", "theirs") + btn("merge", t('merge.btn.perCell'), t('merge.btn.perCellTitle'), "merge");
+  if (status === "mine_del_theirs_mod") return btn("keep_mine_delete", t('merge.btn.keepDelete'), "", "delete") + btn("accept_theirs", t('merge.btn.restoreAcceptTheirs'), "", "theirs");
+  if (status === "mine_mod_theirs_del") return btn("keep_mine", t('merge.btn.keepModified'), "", "mine") + btn("accept_theirs_delete", t('merge.btn.acceptDelete'), "", "delete");
   return "";
 }
 
@@ -2110,18 +2111,18 @@ function renderMergeCell(sheetName, row, col, cell) {
   const rk = String(row.row_key).replace(/'/g, "\\'");
   const isConflict = cell.status === "conflict";
   const isResolved = cell.resolved !== null && cell.resolved !== undefined;
-  const statusLabel = CELL_STATUS_LABELS[cell.status] || cell.status;
+  const statusLabel = getCellStatusLabel(cell.status);
   const header = cell.header || col;
 
   let resolvedDisplay = "";
   if (isResolved && (isConflict || cell.status === "auto_mine" || cell.status === "auto_theirs" || cell.status === "auto_both")) {
     let src = "";
     let srcCls = "";
-    if (cell.resolved === cell.mine) { src = "本地"; srcCls = "src-mine"; }
-    else if (cell.resolved === cell.theirs) { src = "远程"; srcCls = "src-theirs"; }
-    else if (cell.resolved === cell.base) { src = "原始"; srcCls = "src-base"; }
-    else { src = "自定义"; srcCls = "src-custom"; }
-    resolvedDisplay = `<span class="cell-arrow">→</span><span class="cell-resolved ${srcCls}"><strong>${escHtml(cell.resolved || "（空）")}</strong><span class="src">${src}</span></span>`;
+    if (cell.resolved === cell.mine) { src = t('merge.src.mine'); srcCls = "src-mine"; }
+    else if (cell.resolved === cell.theirs) { src = t('merge.src.theirs'); srcCls = "src-theirs"; }
+    else if (cell.resolved === cell.base) { src = t('merge.src.base'); srcCls = "src-base"; }
+    else { src = t('merge.src.custom'); srcCls = "src-custom"; }
+    resolvedDisplay = `<span class="cell-arrow">→</span><span class="cell-resolved ${srcCls}"><strong>${escHtml(cell.resolved || t('merge.emptyValue'))}</strong><span class="src">${src}</span></span>`;
   }
 
   let btns = "";
@@ -2135,9 +2136,9 @@ function renderMergeCell(sheetName, row, col, cell) {
     };
     const customSel = (cell.resolved !== null && cell.resolved !== cell.mine && cell.resolved !== cell.theirs && cell.resolved !== cell.base) ? " selected" : "";
     btns = `<div class="merge-resolve-btns">
-      <button class="btn-mine${sel("mine")}" onclick="setCellChoice('${sk}','${rk}','${col}','mine')" title="保留本地值">保留我的</button>
-      <button class="btn-theirs${sel("theirs")}" onclick="setCellChoice('${sk}','${rk}','${col}','theirs')" title="使用远程值">用远程</button>
-      <button class="btn-custom${customSel}" onclick="setCellChoice('${sk}','${rk}','${col}','custom')" title="输入自定义值">自定义</button>
+      <button class="btn-mine${sel("mine")}" onclick="setCellChoice('${sk}','${rk}','${col}','mine')" title="${t('merge.cellBtn.keepMineTitle')}">${t('merge.cellBtn.keepMine')}</button>
+      <button class="btn-theirs${sel("theirs")}" onclick="setCellChoice('${sk}','${rk}','${col}','theirs')" title="${t('merge.cellBtn.useTheirsTitle')}">${t('merge.cellBtn.useTheirs')}</button>
+      <button class="btn-custom${customSel}" onclick="setCellChoice('${sk}','${rk}','${col}','custom')" title="${t('merge.cellBtn.customTitle')}">${t('merge.cellBtn.custom')}</button>
     </div>`;
   }
 
@@ -2158,8 +2159,8 @@ function renderMergeCell(sheetName, row, col, cell) {
     </div>
     <div class="merge-cell-sides">
       <div class="side base"><span class="side-label">BASE</span><span class="side-value">${escHtml(cell.base || "—")}</span></div>
-      <div class="side mine ${cell.mine !== cell.base ? "changed" : ""}"><span class="side-label">本地</span><span class="side-value">${escHtml(cell.mine || "—")}</span></div>
-      <div class="side theirs ${cell.theirs !== cell.base ? "changed" : ""}"><span class="side-label">远程</span><span class="side-value">${escHtml(cell.theirs || "—")}</span></div>
+      <div class="side mine ${cell.mine !== cell.base ? "changed" : ""}"><span class="side-label">${t('merge.side.mine')}</span><span class="side-value">${escHtml(cell.mine || "—")}</span></div>
+      <div class="side theirs ${cell.theirs !== cell.base ? "changed" : ""}"><span class="side-label">${t('merge.side.theirs')}</span><span class="side-value">${escHtml(cell.theirs || "—")}</span></div>
     </div>
     ${btns}
   </div>`;

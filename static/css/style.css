@@ -1329,3 +1329,17 @@ body {
 .ov-file-detail .diff-container::-webkit-scrollbar-thumb { background: #768390; border-radius: 7px; border: 2px solid #3a424b; }
 .ov-file-detail .diff-container::-webkit-scrollbar-thumb:hover { background: #adbac7; }
 .ov-file-detail .diff-container::-webkit-scrollbar-corner { background: #3a424b; }
+
+/* Language toggle */
+.lang-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 8px;
+}
+.lang-toggle:hover { background: var(--bg-hover); }

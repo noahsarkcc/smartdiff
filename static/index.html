@@ -4,53 +4,52 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SmartDiff</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=18">
+  <link rel="stylesheet" href="/static/css/style.css?v=19">
 </head>
 <body>
   <div class="app">
-    <!-- Header -->
     <header class="header">
       <h1>SmartDiff</h1>
-      <select class="workspace-select" id="workspaceSelect" title="切换工作区"></select>
-      <button class="ws-add-btn" id="wsAddBtn" title="添加工作区">+</button>
-      <button class="ws-remove-btn" id="wsRemoveBtn" title="删除当前工作区">&minus;</button>
-      <button class="ws-open-btn" id="wsOpenBtn" title="打开工作区目录">&#128194;</button>
+      <select class="workspace-select" id="workspaceSelect" data-i18n-title="workspace.switch" title="切换工作区"></select>
+      <button class="ws-add-btn" id="wsAddBtn" data-i18n-title="workspace.add" title="添加工作区">+</button>
+      <button class="ws-remove-btn" id="wsRemoveBtn" data-i18n-title="workspace.remove" title="删除当前工作区">&minus;</button>
+      <button class="ws-open-btn" id="wsOpenBtn" data-i18n-title="workspace.openDir" title="打开工作区目录">&#128194;</button>
       <span class="svn-badge offline" id="svnBadge">SVN</span>
       <div class="spacer"></div>
+      <button class="lang-toggle" id="langToggle" data-i18n-title="lang.toggle" title="切换语言 / Switch language">EN</button>
       <div class="mode-tabs">
-        <button class="mode-tab active" data-mode="local">本地变更</button>
-        <button class="mode-tab" data-mode="revision">版本对比</button>
-        <button class="mode-tab" data-mode="browse">浏览</button>
-        <button class="mode-tab" data-mode="overview">版本总览</button>
-        <button class="mode-tab" data-mode="merge">语义合并</button>
+        <button class="mode-tab active" data-mode="local" data-i18n="mode.local">本地变更</button>
+        <button class="mode-tab" data-mode="revision" data-i18n="mode.revision">版本对比</button>
+        <button class="mode-tab" data-mode="browse" data-i18n="mode.browse">浏览</button>
+        <button class="mode-tab" data-mode="overview" data-i18n="mode.overview">版本总览</button>
+        <button class="mode-tab" data-mode="merge" data-i18n="mode.merge">语义合并</button>
       </div>
     </header>
     <div class="update-banner" id="updateBanner" style="display:none"></div>
 
-    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <input type="text" id="searchInput" placeholder="搜索文件...">
-        <button class="filter-btn" id="filterModified">仅变更</button>
+        <input type="text" id="searchInput" data-i18n-placeholder="sidebar.search" placeholder="搜索文件...">
+        <button class="filter-btn" id="filterModified" data-i18n="sidebar.modifiedOnly">仅变更</button>
       </div>
       <div class="file-list" id="fileList">
-        <div class="loading">加载中...</div>
+        <div class="loading" data-i18n="sidebar.loading">加载中...</div>
       </div>
     </aside>
 
-    <!-- Main -->
     <main class="main">
       <div class="toolbar" id="toolbar"></div>
       <div id="content">
         <div class="placeholder">
           <img class="icon-img" src="/static/img/miku.svg" alt="" />
-          <div class="text">选择左侧文件开始对比</div>
-          <div class="hint">支持 本地变更 / 版本对比 / 浏览 三种模式</div>
+          <div class="text" data-i18n="placeholder.text">选择左侧文件开始对比</div>
+          <div class="hint" data-i18n="placeholder.hint">支持 本地变更 / 版本对比 / 浏览 三种模式</div>
         </div>
       </div>
     </main>
   </div>
 
-  <script src="/static/js/app.js?v=18"></script>
+  <script src="/static/js/i18n.js?v=19"></script>
+  <script src="/static/js/app.js?v=19"></script>
 </body>
 </html>
