@@ -7,7 +7,7 @@
 [![Tests](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml/badge.svg)](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/noahsarkcc/smartdiff)](https://github.com/noahsarkcc/smartdiff/releases)
 
-> **v1.3.2** · 面向表格配置的语义化 Diff 与三方合并工具
+> **v1.3.3** · 面向表格配置的语义化 Diff 与三方合并工具
 
 SmartDiff 是一个零依赖、可本地运行的表格 Diff 工具，专为以 Excel 表格（`.xml` / `.xlsx` / `.xls`）维护的结构化配置数据而设计。它自动过滤样式、窗口状态、列宽等元数据噪音，**只呈现真正的数据变更**，并提供基于行 ID 的智能匹配、单元格级三方语义合并，以及可选的 SVN 版本集成。
 
@@ -166,7 +166,7 @@ A：工具已改用远程 URL 获取版本历史，无需 `svn update` 即可看
 
 ## 更新日志
 
-完整版本历史见 [CHANGELOG.md](CHANGELOG.md)。
+完整版本历史见 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
 
 ---
 

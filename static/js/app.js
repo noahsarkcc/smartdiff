@@ -177,7 +177,7 @@ async function switchWorkspace(idx) {
     renderToolbar();
     renderContent();
   } catch (e) {
-    alert("\u5207\u6362\u5de5\u4f5c\u533a\u5931\u8d25: " + e.message);
+    alert(t('workspace.switchFailed', e.message));
   }
 }
 
@@ -213,7 +213,7 @@ async function _doAddWorkspace(path) {
       startRemoteVersionCheck();
     }
   } catch (e) {
-    alert("\u6dfb\u52a0\u5de5\u4f5c\u533a\u5931\u8d25: " + e.message);
+    alert(t('workspace.addFailed', e.message));
   }
 }
 
@@ -223,17 +223,17 @@ async function showDirBrowser() {
   overlay.id = "dirBrowserOverlay";
 
   overlay.innerHTML = `<div class="update-modal dir-browser-modal">
-    <h3>\u9009\u62e9\u5de5\u4f5c\u533a\u76ee\u5f55</h3>
+    <h3>${t('dirBrowser.title')}</h3>
     <div class="dir-path-bar">
-      <button class="dir-up-btn" onclick="dirBrowserUp()" title="\u8fd4\u56de\u4e0a\u7ea7\u76ee\u5f55">\u2191</button>
-      <input type="text" id="dirPathInput" placeholder="\u8f93\u5165\u8def\u5f84..." onkeydown="if(event.key==='Enter')dirBrowserGo()" />
-      <button onclick="dirBrowserGo()">\u524d\u5f80</button>
+      <button class="dir-up-btn" onclick="dirBrowserUp()" title="${t('dirBrowser.upTitle')}">↑</button>
+      <input type="text" id="dirPathInput" placeholder="${t('dirBrowser.pathPlaceholder')}" onkeydown="if(event.key==='Enter')dirBrowserGo()" />
+      <button onclick="dirBrowserGo()">${t('dirBrowser.go')}</button>
     </div>
     <div class="dir-breadcrumb" id="dirBreadcrumb"></div>
-    <div class="dir-list" id="dirList"><div class="loading">\u52a0\u8f7d\u4e2d...</div></div>
+    <div class="dir-list" id="dirList"><div class="loading">${t('diff.loading')}</div></div>
     <div class="modal-footer">
-      <button class="primary" onclick="dirBrowserSelect()">\u9009\u62e9\u6b64\u76ee\u5f55</button>
-      <button onclick="closeDirBrowser()">\u53d6\u6d88</button>
+      <button class="primary" onclick="dirBrowserSelect()">${t('dirBrowser.select')}</button>
+      <button onclick="closeDirBrowser()">${t('dirBrowser.cancel')}</button>
     </div>
   </div>`;
 
@@ -260,7 +260,7 @@ async function dirBrowserNavigate(path) {
   const breadEl = document.getElementById("dirBreadcrumb");
   if (!listEl) return;
 
-  listEl.innerHTML = `<div style="padding:10px;color:var(--text-dim)">\u52a0\u8f7d\u4e2d...</div>`;
+  listEl.innerHTML = `<div style="padding:10px;color:var(--text-dim)">${t('diff.loading')}</div>`;
   try {
     const data = await api(`/api/browse-dir?path=${encodeURIComponent(path)}`);
     _dirBrowserPath = data.path || "";
@@ -268,11 +268,11 @@ async function dirBrowserNavigate(path) {
 
     if (breadEl) {
       if (data.is_root) {
-        breadEl.innerHTML = `<span class="crumb active">\u6211\u7684\u7535\u8111</span>`;
+        breadEl.innerHTML = `<span class="crumb active">${t('dirBrowser.myComputer')}</span>`;
       } else {
         const norm = _dirNorm(_dirBrowserPath);
         const parts = norm.split("/").filter(Boolean);
-        let crumbs = `<span class="crumb" onclick="dirBrowserNavigate('')">\u6211\u7684\u7535\u8111</span>`;
+        let crumbs = `<span class="crumb" onclick="dirBrowserNavigate('')">${t('dirBrowser.myComputer')}</span>`;
         for (let i = 0; i < parts.length; i++) {
           const seg = parts.slice(0, i + 1).join("/");
           const isLast = i === parts.length - 1;
@@ -288,7 +288,7 @@ async function dirBrowserNavigate(path) {
       html += `<div class="dir-item dir-item-up" onclick="dirBrowserNavigate('${_dirNorm(parent).replace(/'/g, "\\'")}')">\ud83d\udcc1 ..</div>`;
     }
     if (data.dirs.length === 0 && !html) {
-      listEl.innerHTML = `<div style="padding:10px;color:var(--text-dim)">\u6ca1\u6709\u5b50\u76ee\u5f55</div>`;
+      listEl.innerHTML = `<div style="padding:10px;color:var(--text-dim)">${t('dirBrowser.noSubdirs')}</div>`;
     } else {
       for (const d of data.dirs) {
         const name = _dirNorm(d).split("/").filter(Boolean).pop() || d;
@@ -298,7 +298,7 @@ async function dirBrowserNavigate(path) {
       listEl.innerHTML = html;
     }
   } catch (e) {
-    listEl.innerHTML = `<div style="padding:10px;color:var(--red)">\u52a0\u8f7d\u5931\u8d25: ${e.message}</div>`;
+    listEl.innerHTML = `<div style="padding:10px;color:var(--red)">${t('dirBrowser.loadFailed', e.message)}</div>`;
   }
 }
 
@@ -333,7 +333,7 @@ async function dirBrowserSelect() {
     }
   }
   if (!path) {
-    alert("\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u76ee\u5f55");
+    alert(t('dirBrowser.selectFirst'));
     return;
   }
   closeDirBrowser();
@@ -1009,7 +1009,7 @@ function renderContent() {
   if (!state.diff) {
     main.innerHTML = `<div class="placeholder">
       <img class="icon-img" src="/static/img/miku.svg" alt="" />
-      <div class="text">\u70b9\u51fb\u5de5\u5177\u680f\u6309\u94ae\u5f00\u59cb</div>
+      <div class="text">${t('placeholder.clickToolbar')}</div>
     </div>`;
     return;
   }
@@ -1158,7 +1158,7 @@ function attachScrollHints(root, clearAll) {
 
       const centerY = cr.top + cr.height / 2;
       if (leftCount > 0) {
-        leftHint.textContent = `\u2190 \u5de6\u4fa7 ${leftCount} \u5904\u53d8\u66f4`;
+        leftHint.textContent = t('diff.scrollLeft', leftCount);
         leftHint.style.display = "block";
         leftHint.style.top = centerY + "px";
         leftHint.style.left = (cr.left + 8) + "px";
@@ -1170,7 +1170,7 @@ function attachScrollHints(root, clearAll) {
         leftHint.style.display = "none";
       }
       if (rightCount > 0) {
-        rightHint.textContent = `\u53f3\u4fa7 ${rightCount} \u5904\u53d8\u66f4 \u2192`;
+        rightHint.textContent = t('diff.scrollRight', rightCount);
         rightHint.style.display = "block";
         rightHint.style.top = centerY + "px";
         rightHint.style.left = "";
@@ -2173,11 +2173,31 @@ function openMergeFromConflict(fname) {
   selectFile(fname);
 }
 
+// ── i18n: full UI re-render ──
+
+function reRenderAll() {
+  I18N.applyDOMTexts();
+  renderHeader();
+  renderFileList();
+  renderToolbar();
+  renderContent();
+  const toggle = document.getElementById("langToggle");
+  if (toggle) toggle.textContent = I18N.current === 'zh' ? 'EN' : '中';
+}
+
 // ── Event bindings ──
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll(".mode-tab").forEach(t => {
-    t.addEventListener("click", () => setMode(t.dataset.mode));
+  I18N.init();
+  const langBtn = document.getElementById("langToggle");
+  langBtn.textContent = I18N.current === 'zh' ? 'EN' : '中';
+  langBtn.addEventListener("click", () => {
+    I18N.setLocale(I18N.current === 'zh' ? 'en' : 'zh');
+  });
+  I18N.applyDOMTexts();
+
+  document.querySelectorAll(".mode-tab").forEach(tab => {
+    tab.addEventListener("click", () => setMode(tab.dataset.mode));
   });
 
   document.getElementById("searchInput").addEventListener("input", (e) => {

@@ -2,7 +2,7 @@
 Flask server for SmartDiff.
 Provides REST API for parsing, diffing, and SVN integration.
 """
-__version__ = "1.3.2"
+__version__ = "1.3.3"
 
 import os
 import sys
