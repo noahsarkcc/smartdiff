@@ -17,8 +17,25 @@ SmartDiff is a zero-dependency, locally-runnable diff tool for structured config
 
 ---
 
+## Screenshots
+
+**Local changes** — only the real data changes are highlighted: green rows added, red rows deleted, yellow cells modified (old → new).
+
+<p align="center">
+  <img src="assets/1.png" alt="SmartDiff local changes mode" width="900">
+</p>
+
+**Semantic merge** — cell- and row-level three-way resolution over `BASE / MINE / THEIRS`, written back to the original `.xml`.
+
+<p align="center">
+  <img src="assets/2.png" alt="SmartDiff semantic merge mode" width="900">
+</p>
+
+---
+
 ## Table of Contents
 
+- [Screenshots](#screenshots)
 - [Features](#features)
 - [Install & Run](#install--run)
 - [Usage](#usage)
