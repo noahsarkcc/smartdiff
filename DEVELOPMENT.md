@@ -189,6 +189,8 @@ Wraps the SVN CLI and handles encoding.
 - **Apply merge** calls `/api/merge/apply` with both cell and row-level selections via `collectResolutions()`
 - The SVN conflict dialog renders an extra **Semantic merge** button on `.conflict-item` for `.xml` files; on merge completion, `svn resolve --accept working` is invoked automatically
 
+**Internationalization (i18n)**: `static/js/i18n.js` provides a lightweight i18n framework. `I18N.messages` holds complete `zh` and `en` dictionaries. The global `t(key, ...args)` function looks up the current locale and performs `{0}`, `{1}` placeholder replacement. On load, `I18N.init()` detects the locale from `localStorage` (`smartdiff_lang`) or `navigator.language`. Clicking the header's language toggle calls `I18N.setLocale()`, which saves the preference, applies `data-i18n` / `data-i18n-title` / `data-i18n-placeholder` attributes on static DOM elements, and calls `reRenderAll()` to regenerate all dynamic UI. Constants that used to be static objects (`ROW_STATUS_LABELS`, `CELL_STATUS_LABELS`) are now getter functions (`getRowStatusLabel`, `getCellStatusLabel`) so labels are evaluated at render time.
+
 **Other UI details**:
 
 - Modified-file dot indicators (orange = real data change, gray = meta only, green = added, red = removed) classified periodically via `/api/svn/modified-classify`

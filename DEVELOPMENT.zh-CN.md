@@ -189,6 +189,8 @@ smartdiff/
 - **应用合并** 调 `/api/merge/apply`，前端通过 `collectResolutions()` 同时下发单元格选择和行级选择
 - SVN 冲突弹窗的 `.conflict-item` 上对 `.xml` 文件额外渲染**语义合并**按钮；合并完成后自动 `svn resolve --accept working`
 
+**国际化（i18n）**：`static/js/i18n.js` 提供轻量 i18n 框架。`I18N.messages` 存放完整的 `zh` / `en` 双语词典。全局函数 `t(key, ...args)` 根据当前语言查表并执行 `{0}`、`{1}` 占位符替换。页面加载时 `I18N.init()` 从 `localStorage`（`smartdiff_lang`）或 `navigator.language` 检测语言。点击顶栏切换按钮调用 `I18N.setLocale()`，保存偏好后对静态 DOM 应用 `data-i18n` / `data-i18n-title` / `data-i18n-placeholder` 属性，并调用 `reRenderAll()` 重新渲染所有动态 UI。原来的静态常量对象（`ROW_STATUS_LABELS`、`CELL_STATUS_LABELS`）已改为 getter 函数（`getRowStatusLabel`、`getCellStatusLabel`），确保标签在渲染时才求值。
+
 **其它细节**：
 
 - 修改文件圆点指示器（橙 = 实质数据变更、灰 = 仅元数据、绿 = 新增、红 = 删除）通过 `/api/svn/modified-classify` 周期性分类
@@ -260,4 +262,4 @@ start.bat                       # 然后在头部添加 wc 目录作为工作区
 | 合规引擎 | 可配置的规则系统：数值范围检查、必填字段验证、跨表引用验证（如表 A 的某列值必须存在于表 B） | 新增 `validator.py`、`/api/validate` |
 | 文件收藏夹 | 常用文件快速访问，每个工作区独立配置 | `config.json` 扩展 |
 
-完整的版本变更历史见 [CHANGELOG.md](CHANGELOG.md)。
+完整的版本变更历史见 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
