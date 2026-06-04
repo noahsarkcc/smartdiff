@@ -1,0 +1,263 @@
+# Development Guide
+
+**English** · [中文](DEVELOPMENT.zh-CN.md)
+
+---
+
+## Table of Contents
+
+- [Project Layout](#project-layout)
+- [Tech Stack](#tech-stack)
+- [Module Walkthrough](#module-walkthrough)
+  - [xml_parser.py / xlsx_parser.py — workbook parsers](#xml_parserpy--xlsx_parserpy--workbook-parsers)
+  - [xml_differ.py — semantic diff engine](#xml_differpy--semantic-diff-engine)
+  - [xml_merger.py — three-way semantic merge engine](#xml_mergerpy--three-way-semantic-merge-engine)
+  - [svn_helper.py — SVN integration](#svn_helperpy--svn-integration)
+  - [server.py — Flask REST API](#serverpy--flask-rest-api)
+  - [static/ — frontend SPA](#static--frontend-spa)
+- [Extension Guide](#extension-guide)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
+
+---
+
+## Project Layout
+
+```
+smartdiff/
+├── server.py            # Flask backend, REST API entry point
+├── xml_parser.py        # SpreadsheetML 2003 parser
+├── xlsx_parser.py       # XLSX (Office Open XML) parser
+├── xml_differ.py        # Semantic diff engine
+├── xml_merger.py        # Three-way semantic merge engine (BASE/MINE/THEIRS)
+├── svn_helper.py        # SVN CLI integration
+├── config.json          # Workspace config (generated at runtime, .gitignored)
+├── requirements.txt     # Python dependencies
+├── start.bat            # Windows one-click launcher
+├── static/              # Frontend SPA (index.html + css + js + img)
+├── tests/
+│   ├── TESTING.md / TESTING.zh-CN.md   # Testing guides
+│   ├── test_merger.py                  # xml_merger unit tests (27 cases)
+│   ├── test_api_merge.py               # HTTP API + mock SVN end-to-end (15 cases)
+│   ├── setup_demo_svn.bat              # Bootstrap a demo SVN repo for manual UI tests
+│   └── data/                           # Three-way fixtures: base.xml / mine.xml / theirs.xml
+├── README.md / README.zh-CN.md
+└── DEVELOPMENT.md / DEVELOPMENT.zh-CN.md
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Notes |
+|---|---|---|
+| Backend | Python 3 + Flask | Lightweight web framework, no database |
+| Frontend | Vanilla JS + CSS | Zero-dependency SPA, no build step |
+| XML parsing | `xml.etree.ElementTree` | Standard library |
+| XLSX parsing | openpyxl | `read_only` + `data_only` mode |
+| VCS | SVN CLI (subprocess) | Invokes `svn` for version info |
+| Packaging | PyInstaller | Builds a standalone exe via `build.bat` |
+
+---
+
+## Module Walkthrough
+
+### `xml_parser.py` / `xlsx_parser.py` — workbook parsers
+
+Both parsers expose the same output shape, so the rest of the pipeline doesn't care about the source format.
+
+**`xml_parser.py`** — SpreadsheetML 2003:
+
+- Namespace: `urn:schemas-microsoft-com:office:spreadsheet`
+- Honors `ss:Index` (non-contiguous numbering) and `ss:MergeAcross` / `ss:MergeDown` (skip merged-cell continuations)
+- `max_col` only advances when a cell actually has a value, so empty trailing columns are dropped
+- Trailing empty headers are trimmed automatically
+
+**`xlsx_parser.py`** — Office Open XML:
+
+- Uses `openpyxl` in `read_only=True, data_only=True` — values only, no formulas or styles
+- Whole-number floats normalized: `1.0` → `"1"` (string output matches `xml_parser`)
+- Two input sources: `parse_file(path)` and `parse_bytes(data)` — the latter is used for SVN historical revisions
+
+**Shared output**:
+
+```python
+{
+    "sheets": {
+        "Sheet1": {
+            "headers": ["ID", "Name", "Value"],
+            "rows": [
+                {"_row": 1, "cells": {"A": "ID", "B": "Name", "C": "Value"}},
+                {"_row": 2, "cells": {"A": "1001", "B": "Item", "C": "100"}},
+            ],
+            "row_count": 10,
+            "col_count": 3,
+        }
+    },
+    "_parse_ms": 12.5,
+}
+```
+
+### `xml_differ.py` — semantic diff engine
+
+Compares two parsed workbooks and produces structured change information.
+
+1. **Auto ID-column detection** (`_auto_detect_id_column`): scans headers for `ID / 编号 / Key / 序号 / 索引` substrings, requires ≥ 50% non-empty unique values; falls back to scanning the first 3 columns. Both old and new sheets are detected to a consistent result.
+2. **Valid-column filtering** (`valid_cols`): only columns with non-empty headers participate in diff; header-less columns are treated as annotations.
+3. **Three-pass row matching** (`_diff_sheet`):
+   - Pass 1: by ID column value
+   - Pass 2: by content hash with positional proximity (handles row-shift from inserts/deletes)
+   - Pass 3: by row number (fallback for content-changed + position-shifted rows)
+4. **Empty rows** (`_is_empty_row`) are skipped from ID detection and every matching pass.
+
+### `xml_merger.py` — three-way semantic merge engine
+
+Cell-level + row-level three-way merge over SpreadsheetML 2003 (`.xml`) workbooks (`BASE / MINE / THEIRS`). Produces an interactive merge preview and writes user resolutions back to MINE's XML file.
+
+**Core functions**:
+
+- `three_way_diff(base, mine, theirs, id_column=None)` — structured comparison; each row's `cells` dict provides `base / mine / theirs / status / resolved`.
+- `apply_resolutions(result, resolutions)` — writes user selections (`mine / theirs / base / custom` + row-level decisions), validates no conflicts remain, returns `{ok, unresolved, applied}`.
+- `write_merged_xml(source_path, result, output_path)` — incremental modifications on top of MINE's original XML AST (Cell/Data text updates, Row clone/remove), then re-serializes.
+
+**Cell-level semantics**:
+
+| BASE | MINE | THEIRS | Result |
+|---|---|---|---|
+| X | X | X | `unchanged` |
+| X | X | Y | `auto_theirs` |
+| X | Y | X | `auto_mine` |
+| X | Y | Y | `auto_both` |
+| X | Y | Z | `conflict` (manual resolution required) |
+
+**Row-level semantics** (depend on ID-column matching):
+
+- `added_mine` / `added_theirs` — one-side addition
+- `added_both_same` / `added_both_diff` — both added the same ID; if different, requires resolution (`keep_mine` / `accept_theirs` / `merge`)
+- `removed_mine` / `removed_theirs` / `removed_both` — one-side or both-side deletion
+- `mine_del_theirs_mod` / `mine_mod_theirs_del` — delete-vs-edit hard conflict
+
+**XML write-back fidelity**: the original BOM / `<?xml ?>` / `<?mso-application ?>` PI / comments / namespace style (default ns vs `ss:` prefix) are all preserved. New rows / cells set `ss:Index` explicitly to avoid breaking implicit numbering, and only the `<Data>` text node is rewritten when updating a cell — `<Cell>` style attributes (`ss:StyleID`, etc.) and inline comments stay intact.
+
+### `svn_helper.py` — SVN integration
+
+Wraps the SVN CLI and handles encoding.
+
+- Auto-detects the `svn` binary (PATH lookup, TortoiseSVN install paths)
+- `_decode_output`: tries UTF-8, then GBK, then UTF-8 with `replace`
+- All operations have timeout protection
+- **Remote-URL strategy**: `get_log` / `get_dir_log` / `get_file_at_revision` / `get_changed_files_between_revisions` prefer the remote URL (via `get_svn_info`), so the latest revision history is visible without `svn update`
+- **Revision filtering**: `--stop-on-copy` avoids the copy-source history; `get_log` additionally filters by path; `get_changed_files_between_revisions` skips files outside the current directory
+- **Binary support**: `_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` return raw bytes for SVN-side reads of XLSX and other binary formats
+- **`smart_update`** supports three conflict policies: `skip / theirs / mine`
+
+### `server.py` — Flask REST API
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/config` | Config + SVN status + workspace list |
+| GET, POST | `/api/workspaces`, `/workspaces/{switch,add,remove}` | Workspace CRUD |
+| POST, GET | `/api/pick-dir`, `/api/browse-dir?path=` | Directory chooser (native tkinter; falls back to a built-in browser) |
+| GET | `/api/file-mtime?file=` | Last modified time (for auto-refresh) |
+| GET | `/api/files` | List workspace files (XML + XLSX) |
+| GET | `/api/svn/modified[-classify]` | Locally modified files; `classify` splits into `data` (real change) vs `meta` (formatting only) |
+| GET | `/api/svn/log`, `/api/svn/dir-log`, `/api/svn/changed-files` | Revision history (file / dir / between two revs) |
+| GET | `/api/svn/remote-revision` | Remote HEAD vs local BASE comparison |
+| POST | `/api/svn/update` | Smart SVN update (`check_only` for conflict probing) |
+| GET | `/api/parse?file=` | Parse a file (auto-detects XML/XLSX) |
+| POST | `/api/diff/{local,revisions,overview,batch}` | Diff endpoints |
+| POST | `/api/merge/preview` | Three-way merge preview (`.xml` only) |
+| POST | `/api/merge/apply` | Apply resolutions and write back |
+| POST | `/api/merge/svn-mark-resolved` | Invoke `svn resolve --accept working` |
+
+### `static/` — frontend SPA
+
+**State management**: a single global `state` object holds the current mode, file list, diff result, etc. All UI updates go through `render*` functions that re-render from state.
+
+**Rendering optimization**: batch rendering (`BATCH_SIZE = 150` rows) with `requestAnimationFrame` appending subsequent rows; each `tbody` has a unique ID so multiple tables can be expanded simultaneously.
+
+**Inline Diff** (`inlineDiff`): LCS-based character-level diff inside modified cells. Short strings (≤ 200 chars) diff char-by-char; longer strings are tokenized by separators first. Outputs `<del>` / `<ins>` styled to match the GitHub Dark palette.
+
+**Auto refresh & remote revision polling**: `/api/file-mtime` is polled every 3 s — the diff is reloaded automatically when the file changes (Local / Browse modes). `/api/svn/remote-revision` is polled every 30 s — when remote HEAD is ahead of local BASE, a yellow banner appears, and clicking **Update** triggers the smart update flow (conflict detection + categorized handling). Switching workspaces resets all polling state.
+
+**Semantic merge mode**: a 4th mode tab; the sidebar auto-filters to `.xml` only. Selecting a file calls `/api/merge/preview` for the three-way comparison and renders Sheet → Row → Cell:
+
+- Sticky top: sheet tabs + revision source bar (BASE ← MINE · THEIRS)
+- Each row is a card with header (row ID / status badge / row-level resolution buttons / collapse toggle), an always-visible row data table (the source mine / theirs / base / resolved is chosen by `row_decision`; deletions render with strike-through), and a collapsible "change details" pane (per-cell BASE / MINE / THEIRS + resolution buttons; `added_both_diff` shows MINE vs THEIRS side-by-side)
+- Cell badges: `M` (mine, blue), `T` (theirs, purple), `=` (auto_both, green), `✎` (resolved, yellow), `!` (unresolved, red)
+- Toolbar: auto / conflict / unresolved counts + progress bar + "show only unresolved" filter + "expand all / collapse all / smart" tri-state. Smart mode (default) expands rows that need manual resolution and collapses auto-resolved ones
+- **Apply merge** calls `/api/merge/apply` with both cell and row-level selections via `collectResolutions()`
+- The SVN conflict dialog renders an extra **Semantic merge** button on `.conflict-item` for `.xml` files; on merge completion, `svn resolve --accept working` is invoked automatically
+
+**Other UI details**:
+
+- Modified-file dot indicators (orange = real data change, gray = meta only, green = added, red = removed) classified periodically via `/api/svn/modified-classify`
+- Floating horizontal scroll hints `← N changes on the left` / `N changes on the right →` for wide tables; click to scroll to the nearest changed column
+- Overview pane height adapts to the viewport (200–600 px clamp) to keep the horizontal scrollbar visible; expand / collapse uses local DOM updates to preserve scroll position
+- Revision compare defaults to the two most recent SVN revisions; degraded UI for files with 0 or 1 revisions
+- Directory chooser prefers `tkinter.filedialog.askdirectory()` and falls back to a built-in modal in PyInstaller bundles (with path input, breadcrumbs, single-click parent navigation)
+
+---
+
+## Extension Guide
+
+### Adding a new validation rule
+
+Extend `diff_workbooks` in `xml_differ.py`, or add a standalone `validate_workbook` function:
+
+```python
+def validate_workbook(parsed: dict, rules: list) -> list:
+    """Run validation rules against a parsed workbook.
+    rules: [{"type": "range_check", "sheet": "...", "col": "C", "min": 0, "max": 100}, ...]
+    returns: [{"sheet": "...", "row": N, "col": "C", "message": "..."}]
+    """
+```
+
+Then add a `/api/validate` endpoint in `server.py`.
+
+### Adding a new data source
+
+To support other spreadsheet formats (see `xlsx_parser.py` for reference):
+
+1. Create a new parser next to `xml_parser.py`
+2. Keep the same output shape (`sheets` > `headers` + `rows`)
+3. Dispatch by extension in `server.py`'s `_parse_file` / `_parse_content`
+4. For binary formats, use the `_raw` family of helpers in `svn_helper` to obtain raw bytes
+
+### PyInstaller packaging
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --add-data "static;static" --name SmartDiff server.py
+```
+
+The resulting `dist/SmartDiff.exe` runs standalone, no Python required. `config.json` is generated on first launch — don't bundle it.
+
+---
+
+## Testing
+
+```powershell
+# 1) Merge engine unit tests (no SVN required)
+python tests\test_merger.py     # 27 cases
+
+# 2) HTTP API end-to-end (mock SVN)
+python tests\test_api_merge.py  # 15 cases
+
+# 3) Manual UI testing (requires the svn CLI)
+tests\setup_demo_svn.bat        # Creates a three-way aligned demo repo at %TEMP%\xmldev_demo_svn\
+start.bat                       # Then add the wc directory as a workspace from the header
+```
+
+Full walkthrough in [tests/TESTING.md](tests/TESTING.md): per-case expected results, manual UI steps, SVN conflict integration verification, and common issues.
+
+---
+
+## Roadmap
+
+| Feature | Notes | Modules involved |
+|---|---|---|
+| Validation engine | Configurable rule system: numeric range checks, required-field validation, cross-table reference validation (e.g. column X of table A must exist in table B) | New `validator.py`, `/api/validate` |
+| File favorites | Quick access to frequently used files, per-workspace | `config.json` extension |
+
+For a full version-by-version change history, see [CHANGELOG.md](CHANGELOG.md).

@@ -1,0 +1,89 @@
+name: Bug report
+description: Report a problem with SmartDiff
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill in the fields below so we can reproduce it quickly.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear and concise description of what the bug is.
+      placeholder: When I open file X in revision compare mode, ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps so we can hit the same bug.
+      placeholder: |
+        1. Launch `start.bat`
+        2. Add workspace `D:\xml`
+        3. Switch to "Local changes" mode
+        4. Click `items.xml`
+        5. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: I expected to see the diff for column C only.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior (with full traceback if any)
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: Windows 11 / macOS 14 / Ubuntu 22.04
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      description: Output of `python --version`
+      placeholder: Python 3.10.11
+    validations:
+      required: true
+
+  - type: dropdown
+    id: svn_installed
+    attributes:
+      label: Is SVN CLI installed?
+      options:
+        - "Yes (svn --version works)"
+        - "No"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: minimal_repro
+    attributes:
+      label: Minimal reproduction file (optional but very helpful)
+      description: Paste a tiny `.xml` snippet that triggers the bug, or attach the file.
+      render: xml
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, related issues, recent changes you made, etc.

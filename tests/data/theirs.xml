@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="Items">
+<Table>
+<Row><Cell><Data ss:Type="String">ID</Data></Cell><Cell><Data ss:Type="String">名称</Data></Cell><Cell><Data ss:Type="String">数值</Data></Cell><Cell><Data ss:Type="String">备注</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1001</Data></Cell><Cell><Data ss:Type="String">原始道具</Data></Cell><Cell><Data ss:Type="String">10</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1002</Data></Cell><Cell><Data ss:Type="String">仅本地改名称</Data></Cell><Cell><Data ss:Type="String">20</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1003</Data></Cell><Cell><Data ss:Type="String">仅远程改数值</Data></Cell><Cell><Data ss:Type="String">33</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1004</Data></Cell><Cell><Data ss:Type="String">双方同改后</Data></Cell><Cell><Data ss:Type="String">40</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1005</Data></Cell><Cell><Data ss:Type="String">双方改不同列</Data></Cell><Cell><Data ss:Type="String">55</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1006</Data></Cell><Cell><Data ss:Type="String">远程改后</Data></Cell><Cell><Data ss:Type="String">66</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1007</Data></Cell><Cell><Data ss:Type="String">本地删除</Data></Cell><Cell><Data ss:Type="String">70</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1010</Data></Cell><Cell><Data ss:Type="String">本删远改</Data></Cell><Cell><Data ss:Type="String">100</Data></Cell><Cell><Data ss:Type="String">远程修改</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">2002</Data></Cell><Cell><Data ss:Type="String">远程新增</Data></Cell><Cell><Data ss:Type="String">202</Data></Cell><Cell><Data ss:Type="String">新</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">2003</Data></Cell><Cell><Data ss:Type="String">双方都加</Data></Cell><Cell><Data ss:Type="String">203</Data></Cell><Cell><Data ss:Type="String">同步</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">2004</Data></Cell><Cell><Data ss:Type="String">远程版本</Data></Cell><Cell><Data ss:Type="String">204</Data></Cell><Cell><Data ss:Type="String">远程说</Data></Cell></Row>
+</Table>
+</Worksheet>
+</Workbook>

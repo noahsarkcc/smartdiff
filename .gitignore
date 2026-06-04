@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Runtime config (user-specific)
+config.json
+workspace/
+
+# IDE
+.cursor/
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# PyInstaller
+*.spec
+
+# Ad-hoc test scripts at root (the proper test suite lives in tests/)
+/test_*.py
+/_*test*.py

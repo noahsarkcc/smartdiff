@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="Items">
+<Table>
+<Row><Cell><Data ss:Type="String">ID</Data></Cell><Cell><Data ss:Type="String">名称</Data></Cell><Cell><Data ss:Type="String">数值</Data></Cell><Cell><Data ss:Type="String">备注</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1001</Data></Cell><Cell><Data ss:Type="String">原始道具</Data></Cell><Cell><Data ss:Type="String">10</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1002</Data></Cell><Cell><Data ss:Type="String">本地新名称</Data></Cell><Cell><Data ss:Type="String">20</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1003</Data></Cell><Cell><Data ss:Type="String">仅远程改数值</Data></Cell><Cell><Data ss:Type="String">30</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1004</Data></Cell><Cell><Data ss:Type="String">双方同改后</Data></Cell><Cell><Data ss:Type="String">40</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1005</Data></Cell><Cell><Data ss:Type="String">本地改名称</Data></Cell><Cell><Data ss:Type="String">50</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1006</Data></Cell><Cell><Data ss:Type="String">本地改后</Data></Cell><Cell><Data ss:Type="String">66</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1008</Data></Cell><Cell><Data ss:Type="String">远程删除</Data></Cell><Cell><Data ss:Type="String">80</Data></Cell><Cell><Data ss:Type="String">基础</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">1011</Data></Cell><Cell><Data ss:Type="String">本改远删</Data></Cell><Cell><Data ss:Type="String">119</Data></Cell><Cell><Data ss:Type="String">本地修改</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">2001</Data></Cell><Cell><Data ss:Type="String">本地新增</Data></Cell><Cell><Data ss:Type="String">201</Data></Cell><Cell><Data ss:Type="String">新</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">2003</Data></Cell><Cell><Data ss:Type="String">双方都加</Data></Cell><Cell><Data ss:Type="String">203</Data></Cell><Cell><Data ss:Type="String">同步</Data></Cell></Row>
+<Row><Cell><Data ss:Type="String">2004</Data></Cell><Cell><Data ss:Type="String">本地版本</Data></Cell><Cell><Data ss:Type="String">204</Data></Cell><Cell><Data ss:Type="String">本地说</Data></Cell></Row>
+</Table>
+</Worksheet>
+</Workbook>
