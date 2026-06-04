@@ -2175,6 +2175,66 @@ function openMergeFromConflict(fname) {
 
 // ── i18n: full UI re-render ──
 
+// ── Settings modal ──
+
+function openSettings() {
+  const hr = (state.config && state.config.header_row) || 1;
+  const overlay = document.createElement("div");
+  overlay.className = "update-modal-overlay";
+  overlay.id = "settingsOverlay";
+  overlay.innerHTML = `<div class="update-modal settings-modal">
+    <h3>${t('settings.title')}</h3>
+    <div class="settings-form-group">
+      <label>${t('settings.headerRow')}</label>
+      <input type="number" id="settingsHeaderRow" min="1" value="${hr}">
+      <div class="hint">${t('settings.headerRowHint')}</div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeSettings()">${t('settings.cancel')}</button>
+      <button class="primary" onclick="saveSettings()">${t('settings.save')}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById("settingsHeaderRow").focus();
+}
+
+function closeSettings() {
+  const overlay = document.getElementById("settingsOverlay");
+  if (overlay) overlay.remove();
+}
+
+async function saveSettings() {
+  const input = document.getElementById("settingsHeaderRow");
+  const val = parseInt(input.value, 10);
+  if (isNaN(val) || val < 1) {
+    alert(t('settings.invalidInput'));
+    return;
+  }
+  try {
+    await api("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ header_row: val }),
+    });
+    state.config.header_row = val;
+    closeSettings();
+
+    if (state.mode === "local" && state.diff && !state.diff.error) {
+      doDiffLocal();
+    } else if (state.mode === "revision" && state.diff && !state.diff.error) {
+      doDiffRevision();
+    } else if (state.mode === "browse" && state.diff && state.diff.browse) {
+      doBrowse();
+    } else if (state.mode === "overview" && state.overviewFiles) {
+      doOverview();
+    } else if (state.mode === "merge" && state.mergeData) {
+      doMergePreview();
+    }
+  } catch (e) {
+    alert(t('error.connection', e.message));
+  }
+}
+
 function reRenderAll() {
   I18N.applyDOMTexts();
   renderHeader();
@@ -2218,6 +2278,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("wsAddBtn").addEventListener("click", addWorkspace);
   document.getElementById("wsRemoveBtn").addEventListener("click", removeWorkspace);
   document.getElementById("wsOpenBtn").addEventListener("click", openWorkspaceDir);
+  document.getElementById("settingsBtn").addEventListener("click", openSettings);
 
   init();
 

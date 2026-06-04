@@ -1343,3 +1343,43 @@ body {
   margin-right: 8px;
 }
 .lang-toggle:hover { background: var(--bg-hover); }
+
+.settings-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-right: 4px;
+  line-height: 1;
+}
+.settings-btn:hover { background: var(--bg-hover); }
+
+/* Settings modal */
+.settings-modal { max-width: 420px; }
+.settings-form-group {
+  margin-bottom: 14px;
+}
+.settings-form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: 6px;
+}
+.settings-form-group input[type="number"] {
+  width: 80px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+.settings-form-group .hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}

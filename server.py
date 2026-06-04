@@ -2,7 +2,7 @@
 Flask server for SmartDiff.
 Provides REST API for parsing, diffing, and SVN integration.
 """
-__version__ = "1.3.4"
+__version__ = "1.3.5"
 
 import os
 import sys
@@ -26,19 +26,19 @@ def _is_excel_binary(filename: str) -> bool:
     return low.endswith(".xlsx") or low.endswith(".xls")
 
 
-def _parse_file(filepath: str) -> dict:
+def _parse_file(filepath: str, header_row: int = 1) -> dict:
     """Parse a file, auto-selecting parser by extension."""
     if _is_excel_binary(filepath):
-        return xlsx_parser.parse_file(filepath)
-    return xml_parser.parse_file(filepath)
+        return xlsx_parser.parse_file(filepath, header_row=header_row)
+    return xml_parser.parse_file(filepath, header_row=header_row)
 
 
-def _parse_content(content, filename: str) -> dict:
+def _parse_content(content, filename: str, header_row: int = 1) -> dict:
     """Parse file content from SVN (str for XML, bytes for Excel binary)."""
     if _is_excel_binary(filename):
         raw = content if isinstance(content, bytes) else content.encode("latin-1")
-        return xlsx_parser.parse_bytes(raw)
-    return xml_parser.parse_string(content)
+        return xlsx_parser.parse_bytes(raw, header_row=header_row)
+    return xml_parser.parse_string(content, header_row=header_row)
 
 
 def _get_base_content(filepath: str):
@@ -98,6 +98,13 @@ def _load_config() -> dict:
             }
     if _config["active_workspace"] >= len(_config["workspaces"]):
         _config["active_workspace"] = 0
+    try:
+        hr = int(_config.get("header_row", 1))
+        if hr < 1:
+            hr = 1
+    except (TypeError, ValueError):
+        hr = 1
+    _config["header_row"] = hr
     return _config
 
 
@@ -115,6 +122,11 @@ def _get_work_dir() -> str:
         return ""
     idx = min(cfg["active_workspace"], len(cfg["workspaces"]) - 1)
     return cfg["workspaces"][idx]["path"]
+
+
+def _get_header_row() -> int:
+    cfg = _load_config()
+    return cfg.get("header_row", 1)
 
 
 def _rel_to_workdir(path: str, work_dir: str) -> str:
@@ -160,6 +172,7 @@ def api_config():
         "svn_info": svn_helper.get_svn_info(wd) if svn_avail and wd and os.path.isdir(wd) else None,
         "workspaces": cfg["workspaces"],
         "active_workspace": cfg["active_workspace"],
+        "header_row": cfg.get("header_row", 1),
     })
 
 
@@ -290,6 +303,23 @@ def api_browse_dir():
     return jsonify({"path": path, "dirs": dirs, "is_root": False})
 
 
+@app.route("/api/settings", methods=["POST"])
+def api_settings():
+    """Update application settings (e.g. header_row)."""
+    body = request.get_json(force=True)
+    cfg = _load_config()
+    if "header_row" in body:
+        try:
+            hr = int(body["header_row"])
+            if hr < 1:
+                return jsonify({"error": "header_row must be >= 1"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"error": "header_row must be an integer"}), 400
+        cfg["header_row"] = hr
+    _save_config()
+    return jsonify({"ok": True, "header_row": cfg.get("header_row", 1)})
+
+
 @app.route("/api/files")
 def api_files():
     """List supported files in work directory (including subdirectories)."""
@@ -341,6 +371,7 @@ def api_svn_modified_classify():
         return jsonify({"error": "SVN not available"}), 503
     wd = _get_work_dir()
     modified = [_normalize_svn_item(item, wd) for item in svn_helper.get_modified_files(wd)]
+    hr = _get_header_row()
     result = {}
     for item in modified:
         fname = item["name"]
@@ -352,8 +383,8 @@ def api_svn_modified_classify():
             if base is None:
                 result[fname] = "data"
                 continue
-            old_data = _parse_content(base, fname)
-            new_data = _parse_file(item["path"])
+            old_data = _parse_content(base, fname, header_row=hr)
+            new_data = _parse_file(item["path"], header_row=hr)
             diff = xml_differ.diff_workbooks(old_data, new_data)
             s = diff.get("summary", {})
             has_data = (s.get("total_modified_cells", 0) +
@@ -389,7 +420,7 @@ def api_parse():
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
     try:
-        data = _parse_file(fpath)
+        data = _parse_file(fpath, header_row=_get_header_row())
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -417,8 +448,9 @@ def api_diff_local():
                         "Please ensure the file is under SVN version control."}), 500
 
     try:
-        old_data = _parse_content(base_content, filename)
-        new_data = _parse_file(fpath)
+        hr = _get_header_row()
+        old_data = _parse_content(base_content, filename, header_row=hr)
+        new_data = _parse_file(fpath, header_row=hr)
         diff = xml_differ.diff_workbooks(old_data, new_data, id_column=body.get("id_column"))
         diff["old_label"] = "SVN BASE"
         diff["new_label"] = "工作副本"
@@ -452,20 +484,21 @@ def api_diff_revisions():
     if old_content is None:
         return jsonify({"error": f"Failed to get revision {rev_old}"}), 500
 
+    hr = _get_header_row()
     if str(rev_new).upper() == "WORKING":
         if not os.path.exists(fpath):
             return jsonify({"error": f"File not found: {filename}"}), 404
-        new_data = _parse_file(fpath)
+        new_data = _parse_file(fpath, header_row=hr)
         new_label = "工作副本"
     else:
         new_content = _get_file_at_revision(fpath, int(rev_new))
         if new_content is None:
             return jsonify({"error": f"Failed to get revision {rev_new}"}), 500
-        new_data = _parse_content(new_content, filename)
+        new_data = _parse_content(new_content, filename, header_row=hr)
         new_label = f"r{rev_new}"
 
     try:
-        old_data = _parse_content(old_content, filename)
+        old_data = _parse_content(old_content, filename, header_row=hr)
         diff = xml_differ.diff_workbooks(old_data, new_data, id_column=body.get("id_column"))
         diff["old_label"] = f"r{rev_old}"
         diff["new_label"] = new_label
@@ -514,11 +547,10 @@ def api_diff_overview():
     changed = svn_helper.get_changed_files_between_revisions(
         wd, int(rev_old), int(rev_new))
 
+    hr = _get_header_row()
     results = []
     for item in changed:
         fname = item["name"]
-        # Prefer the repository URL so files that are not checked out locally
-        # (and non-ASCII names) still resolve correctly.
         fpath = item.get("url") or os.path.join(wd, fname)
 
         if item["status"] == "deleted":
@@ -532,9 +564,9 @@ def api_diff_overview():
             try:
                 new_content = _get_file_at_revision(fpath, int(rev_new))
                 if new_content is None and os.path.exists(fpath):
-                    new_data = _parse_file(fpath)
+                    new_data = _parse_file(fpath, header_row=hr)
                 elif new_content is not None:
-                    new_data = _parse_content(new_content, fname)
+                    new_data = _parse_content(new_content, fname, header_row=hr)
                 else:
                     results.append({"file": fname, "status": "added",
                                     "summary": {"has_changes": True}})
@@ -556,8 +588,8 @@ def api_diff_overview():
                 results.append({"file": fname, "status": "error",
                                 "error": "Cannot get revision content"})
                 continue
-            old_data = _parse_content(old_content, fname)
-            new_data = _parse_content(new_content, fname)
+            old_data = _parse_content(old_content, fname, header_row=hr)
+            new_data = _parse_content(new_content, fname, header_row=hr)
             diff = xml_differ.diff_workbooks(old_data, new_data)
             results.append({
                 "file": fname, "status": item["status"],
@@ -589,6 +621,7 @@ def api_diff_batch():
 
     wd = _get_work_dir()
     modified = [_normalize_svn_item(item, wd) for item in svn_helper.get_modified_files(wd)]
+    hr = _get_header_row()
     results = []
     for item in modified:
         fpath = item["path"]
@@ -601,7 +634,7 @@ def api_diff_batch():
             continue
         if item["status"] == "added":
             try:
-                new_data = _parse_file(fpath)
+                new_data = _parse_file(fpath, header_row=hr)
                 total_rows = sum(s["row_count"] for s in new_data["sheets"].values())
                 results.append({
                     "file": item["name"],
@@ -621,8 +654,8 @@ def api_diff_batch():
             if base_content is None:
                 results.append({"file": item["name"], "status": "error", "error": "Cannot get BASE"})
                 continue
-            old_data = _parse_content(base_content, item["name"])
-            new_data = _parse_file(fpath)
+            old_data = _parse_content(base_content, item["name"], header_row=hr)
+            new_data = _parse_file(fpath, header_row=hr)
             diff = xml_differ.diff_workbooks(old_data, new_data)
             results.append({
                 "file": item["name"],
@@ -677,9 +710,10 @@ def api_merge_preview():
         return jsonify({"error": f"\u65e0\u6cd5\u83b7\u53d6 r{theirs_rev_int} \u7248\u672c"}), 500
 
     try:
-        base = xml_parser.parse_string(base_content)
-        mine = xml_parser.parse_file(fpath)
-        theirs = xml_parser.parse_string(theirs_content)
+        hr = _get_header_row()
+        base = xml_parser.parse_string(base_content, header_row=hr)
+        mine = xml_parser.parse_file(fpath, header_row=hr)
+        theirs = xml_parser.parse_string(theirs_content, header_row=hr)
         result = xml_merger.three_way_diff(base, mine, theirs,
                                            id_column=body.get("id_column"))
     except Exception as e:
@@ -740,9 +774,10 @@ def api_merge_apply():
         return jsonify({"error": f"\u65e0\u6cd5\u83b7\u53d6 r{theirs_rev_int}"}), 500
 
     try:
-        base = xml_parser.parse_string(base_content)
-        mine = xml_parser.parse_file(fpath)
-        theirs = xml_parser.parse_string(theirs_content)
+        hr = _get_header_row()
+        base = xml_parser.parse_string(base_content, header_row=hr)
+        mine = xml_parser.parse_file(fpath, header_row=hr)
+        theirs = xml_parser.parse_string(theirs_content, header_row=hr)
         result = xml_merger.three_way_diff(base, mine, theirs,
                                            id_column=body.get("id_column"))
         applied = xml_merger.apply_resolutions(result, resolutions)

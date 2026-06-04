@@ -7,7 +7,7 @@
 [![Tests](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml/badge.svg)](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/noahsarkcc/smartdiff)](https://github.com/noahsarkcc/smartdiff/releases)
 
-> **v1.3.4** · Semantic diff and three-way merge for spreadsheet-based configuration data
+> **v1.3.5** · Semantic diff and three-way merge for spreadsheet-based configuration data
 
 SmartDiff is a zero-dependency, locally-runnable diff tool for structured configuration data maintained as Excel spreadsheets (`.xml` / `.xlsx` / `.xls`). It automatically filters out style, window-state, and column-width noise to show **only the real data changes**, with ID-based smart row matching, cell-level three-way semantic merge, and optional SVN integration.
 
@@ -53,7 +53,7 @@ SmartDiff is a zero-dependency, locally-runnable diff tool for structured config
 | **Diff core** | Four modes: local changes (working copy vs BASE), revision compare (any two SVN revisions), browse (parsed tables), and overview (GitHub-style "Files changed" across two revisions). Auto ID-column detection matches rows by content instead of row number, so inserts/deletes don't cascade into false diffs. Comment-column filtering ignores header-less annotation data. Inline character-level highlighting inside modified cells. |
 | **Three-way merge** | Cell-level + row-level auto merge over `BASE / MINE / THEIRS` (`.xml` only). Same-cell conflicts, delete-vs-edit, and same-ID-different-content additions can be resolved one by one and written back to the original XML. |
 | **SVN integration** | Polls the remote repository for new revisions (top banner reminder); smart update with conflict categorization (keep mine / take latest / skip / semantic merge for `.xml`); auto `svn resolve --accept working` after merge. Revision history via the remote URL — no `svn update` required. |
-| **Format & UX** | Parses `.xml` (SpreadsheetML 2003), `.xlsx` (Office Open XML), and `.xls` with a unified diff view. Multi-sheet, multi-workspace, auto-refresh on file change, batch rendering for large tables. |
+| **Format & UX** | Parses `.xml` (SpreadsheetML 2003), `.xlsx` (Office Open XML), and `.xls` with a unified diff view. Configurable header row for tables with metadata rows (obj/type/desc/key) before the actual column headers. Multi-sheet, multi-workspace, auto-refresh on file change, batch rendering for large tables. |
 
 ---
 

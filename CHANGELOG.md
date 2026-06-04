@@ -4,6 +4,13 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## v1.3.5 (2026-06-04)
+
+**New feature**
+- Configurable header row: a new global "Header Row" setting lets users specify which row contains column headers (default: 1). Tables with metadata rows (obj/type/desc/key) before the actual headers are now fully supported — all columns are correctly recognized and compared
+- Settings dialog accessible from the header toolbar (gear icon)
+- Setting is persisted in `config.json` and takes effect immediately across all modes (local diff, revision diff, browse, overview, merge)
+
 ## v1.3.4 (2026-06-04)
 
 **Bug fixes**

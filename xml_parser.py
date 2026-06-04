@@ -31,6 +31,31 @@ SS_HREF = f'{{{NS["ss"]}}}HRef'
 SS_FORMULA = f'{{{NS["ss"]}}}Formula'
 
 
+def build_headers(rows_data: list, max_col: int, header_row: int = 1) -> tuple:
+    """Pick the header row from parsed rows and return (headers, header_comments).
+
+    ``header_row`` is the 1-based *physical* Excel row number (the ``_row``
+    field).  If no row matches, the first non-empty row is used as fallback.
+    """
+    if not rows_data:
+        return [], {}
+    target = None
+    for r in rows_data:
+        if r["_row"] == header_row:
+            target = r
+            break
+    if target is None:
+        target = rows_data[0]
+    headers = []
+    for c in range(1, max_col + 1):
+        ck = col_to_letter(c)
+        headers.append(target["cells"].get(ck, ""))
+    while headers and not headers[-1]:
+        headers.pop()
+    header_comments = target.get("_comments", {})
+    return headers, header_comments
+
+
 def col_to_letter(n: int) -> str:
     """Convert 1-based column number to Excel-style letter (1->A, 27->AA)."""
     result = ""
@@ -69,7 +94,7 @@ def _extract_comment_text(cell_el) -> Optional[str]:
     return _get_text_recursive(comment).strip() or None
 
 
-def parse_workbook(source) -> dict:
+def parse_workbook(source, header_row: int = 1) -> dict:
     """
     Parse an Excel XML Spreadsheet file or string.
 
@@ -165,16 +190,7 @@ def parse_workbook(source) -> dict:
                     row_entry["_comments"] = comments
                 rows_data.append(row_entry)
 
-        headers = []
-        header_comments = {}
-        if rows_data:
-            first_row = rows_data[0]
-            for c in range(1, max_col + 1):
-                ck = col_to_letter(c)
-                headers.append(first_row["cells"].get(ck, ""))
-            while headers and not headers[-1]:
-                headers.pop()
-            header_comments = first_row.get("_comments", {})
+        headers, header_comments = build_headers(rows_data, max_col, header_row)
 
         result["sheets"][sheet_name] = {
             "headers": headers,
@@ -188,15 +204,15 @@ def parse_workbook(source) -> dict:
     return result
 
 
-def parse_file(filepath: str) -> dict:
+def parse_file(filepath: str, header_row: int = 1) -> dict:
     """Convenience wrapper: parse a file and include file metadata."""
-    data = parse_workbook(filepath)
+    data = parse_workbook(filepath, header_row=header_row)
     data["file"] = os.path.basename(filepath)
     data["file_path"] = filepath
     data["file_size"] = os.path.getsize(filepath)
     return data
 
 
-def parse_string(content: str) -> dict:
+def parse_string(content: str, header_row: int = 1) -> dict:
     """Parse XML content from a string (e.g. from svn cat)."""
-    return parse_workbook(content)
+    return parse_workbook(content, header_row=header_row)

@@ -204,6 +204,14 @@ const I18N_MESSAGES = {
     'conflict.confirmUpdate': '确认更新',
     'conflict.cancel': '取消',
 
+    'settings.title': '设置',
+    'settings.headerRow': '表头起始行',
+    'settings.headerRowHint': '指定表头所在的行号（Excel 物理行号）。对于前几行是 type/desc/key 等元信息的特殊表格，请设为实际字段名所在行。',
+    'settings.save': '保存',
+    'settings.cancel': '取消',
+    'settings.saved': '设置已保存',
+    'settings.invalidInput': '请输入大于 0 的整数',
+
     'lang.toggle': '切换语言 / Switch language',
     'lang.zh': '中',
     'lang.en': 'EN',
@@ -433,6 +441,14 @@ const I18N_MESSAGES = {
     'conflict.skipAll': 'Skip all conflicts',
     'conflict.confirmUpdate': 'Confirm update',
     'conflict.cancel': 'Cancel',
+
+    'settings.title': 'Settings',
+    'settings.headerRow': 'Header Row',
+    'settings.headerRowHint': 'Specify the row number containing column headers (Excel physical row number). For tables with metadata rows like type/desc/key at the top, set this to the actual field name row.',
+    'settings.save': 'Save',
+    'settings.cancel': 'Cancel',
+    'settings.saved': 'Settings saved',
+    'settings.invalidInput': 'Please enter an integer greater than 0',
 
     'lang.toggle': 'Switch language / 切换语言',
     'lang.zh': '中',

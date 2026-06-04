@@ -9,7 +9,7 @@ import time
 
 import openpyxl
 import xlrd
-from xml_parser import col_to_letter
+from xml_parser import col_to_letter, build_headers
 
 
 def _cell_to_str(value) -> str:
@@ -32,7 +32,7 @@ def _is_xls(source) -> bool:
     return False
 
 
-def _parse_xls(source) -> dict:
+def _parse_xls(source, header_row: int = 1) -> dict:
     """Parse an XLS (BIFF) workbook using xlrd."""
     if isinstance(source, bytes):
         wb = xlrd.open_workbook(file_contents=source)
@@ -59,15 +59,7 @@ def _parse_xls(source) -> dict:
             if cells:
                 rows_data.append({"_row": row_idx + 1, "cells": cells})
 
-        headers = []
-        header_comments = {}
-        if rows_data:
-            first_row = rows_data[0]
-            for c in range(1, max_col + 1):
-                ck = col_to_letter(c)
-                headers.append(first_row["cells"].get(ck, ""))
-            while headers and not headers[-1]:
-                headers.pop()
+        headers, header_comments = build_headers(rows_data, max_col, header_row)
 
         result["sheets"][sheet_name] = {
             "headers": headers,
@@ -80,7 +72,7 @@ def _parse_xls(source) -> dict:
     return result
 
 
-def _parse_xlsx(source) -> dict:
+def _parse_xlsx(source, header_row: int = 1) -> dict:
     """Parse an XLSX (Office Open XML) workbook using openpyxl."""
     if isinstance(source, (str, os.PathLike)) and os.path.isfile(source):
         wb = openpyxl.load_workbook(source, read_only=True, data_only=True)
@@ -112,15 +104,7 @@ def _parse_xlsx(source) -> dict:
                 if cells:
                     rows_data.append({"_row": row_idx, "cells": cells})
 
-            headers = []
-            header_comments = {}
-            if rows_data:
-                first_row = rows_data[0]
-                for c in range(1, max_col + 1):
-                    ck = col_to_letter(c)
-                    headers.append(first_row["cells"].get(ck, ""))
-                while headers and not headers[-1]:
-                    headers.pop()
+            headers, header_comments = build_headers(rows_data, max_col, header_row)
 
             result["sheets"][sheet_name] = {
                 "headers": headers,
@@ -135,7 +119,7 @@ def _parse_xlsx(source) -> dict:
     return result
 
 
-def parse_workbook(source) -> dict:
+def parse_workbook(source, header_row: int = 1) -> dict:
     """
     Parse an Excel workbook (.xlsx or .xls) from a file path, bytes, or file-like object.
 
@@ -144,23 +128,23 @@ def parse_workbook(source) -> dict:
     t0 = time.perf_counter()
 
     if _is_xls(source):
-        result = _parse_xls(source)
+        result = _parse_xls(source, header_row=header_row)
     else:
-        result = _parse_xlsx(source)
+        result = _parse_xlsx(source, header_row=header_row)
 
     result["_parse_ms"] = round((time.perf_counter() - t0) * 1000, 1)
     return result
 
 
-def parse_file(filepath: str) -> dict:
+def parse_file(filepath: str, header_row: int = 1) -> dict:
     """Convenience wrapper: parse a file and include file metadata."""
-    data = parse_workbook(filepath)
+    data = parse_workbook(filepath, header_row=header_row)
     data["file"] = os.path.basename(filepath)
     data["file_path"] = filepath
     data["file_size"] = os.path.getsize(filepath)
     return data
 
 
-def parse_bytes(content: bytes) -> dict:
+def parse_bytes(content: bytes, header_row: int = 1) -> dict:
     """Parse Excel content from raw bytes (e.g. from svn cat)."""
-    return parse_workbook(content)
+    return parse_workbook(content, header_row=header_row)
