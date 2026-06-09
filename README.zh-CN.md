@@ -7,7 +7,7 @@
 [![Tests](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml/badge.svg)](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/noahsarkcc/smartdiff)](https://github.com/noahsarkcc/smartdiff/releases)
 
-> **v1.3.5** · 面向表格配置的语义化 Diff 与三方合并工具
+> **v1.3.6** · 面向表格配置的语义化 Diff 与三方合并工具
 
 SmartDiff 是一个零依赖、可本地运行的表格 Diff 工具，专为以 Excel 表格（`.xml` / `.xlsx` / `.xls`）维护的结构化配置数据而设计。它自动过滤样式、窗口状态、列宽等元数据噪音，**只呈现真正的数据变更**，并提供基于行 ID 的智能匹配、单元格级三方语义合并，以及可选的 SVN 版本集成。
 
@@ -50,7 +50,7 @@ SmartDiff 是一个零依赖、可本地运行的表格 Diff 工具，专为以 
 
 | 类别 | 能力 |
 |---|---|
-| **Diff 核心** | 四种模式：本地变更（工作副本 vs BASE）、版本对比（任意两个 SVN 版本）、浏览（解析后表格视图）、版本总览（GitHub 风格的 "Files changed"，一次查看两个版本间所有文件的变更）。自动 ID 列检测按内容匹配行而非行号，插入 / 删除不会产生级联假修改。注释列（无表头）自动从 Diff 排除。修改单元格内字符级高亮。 |
+| **Diff 核心** | 四种模式：本地变更（工作副本 vs BASE）、版本对比（任意两个 SVN 版本）、浏览（解析后表格视图）、版本总览（GitHub 风格的 "Files changed"，一次查看两个版本间所有文件的变更）。自动 ID 列检测按内容匹配行而非行号，插入 / 删除不会产生级联假修改。注释列（无表头）自动从 Diff 排除。修改单元格内智能 token 级高亮（数字 / 单词整块对比），支持内联 / 分行（旧值、新值上下两行）视图切换。 |
 | **三方合并** | `BASE / 本地 / 远程` 单元格级 + 行级自动合并（仅 `.xml`）。同一单元格双方改不同值、删除 vs 修改、双方加同 ID 不同内容可逐项手动决议后写回原 XML。 |
 | **SVN 集成** | 远程版本轮询（顶部横幅提醒）；智能更新分类处理冲突（保留我的 / 用最新 / 跳过 / 对 `.xml` 进入语义合并）；合并完成后自动 `svn resolve --accept working`。版本历史经远程 URL 获取，无需 `svn update`。 |
 | **格式与体验** | 可解析 `.xml`（SpreadsheetML 2003）、`.xlsx`（Office Open XML）和 `.xls`，统一 Diff 视图；可配置表头起始行，支持前几行是 obj/type/desc/key 等元信息的特殊表格；多 Sheet、多工作区、文件变更自动刷新、大表格分批渲染。 |

@@ -314,6 +314,11 @@ body {
   color: #ffffff;
 }
 .toolbar .btn.primary:hover { background: #2ea043; }
+.toolbar .btn.view-toggle {
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.toolbar .btn.view-toggle:hover { color: var(--text-bright); }
 
 /* Sheet tabs */
 .sheet-tabs {
@@ -481,7 +486,7 @@ body {
   background: var(--yellow-bg);
 }
 .diff-table td.cell-modified .inline-diff {
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .diff-table td.cell-modified del {
   background: var(--red-bg-strong);
@@ -497,6 +502,33 @@ body {
   border-radius: 2px;
   padding: 0 1px;
   font-weight: 500;
+}
+
+/* Split diff view: old value on top, new value below */
+.diff-table td.cell-modified.split {
+  padding: 0;
+}
+.diff-table td.cell-modified.split .cell-old,
+.diff-table td.cell-modified.split .cell-new {
+  padding: 2px 6px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.diff-table td.cell-modified.split .cell-old {
+  background: var(--red-bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.diff-table td.cell-modified.split .cell-new {
+  background: var(--green-bg);
+  color: var(--text);
+}
+.diff-table td.cell-modified.split .cell-old del {
+  text-decoration: none;
+}
+.diff-table td.cell-modified.split .cell-new ins {
+  font-weight: 600;
 }
 .diff-table tr.row-added td { background: var(--green-bg); }
 .diff-table tr.row-removed td { background: var(--red-bg); text-decoration: line-through; color: var(--red); }

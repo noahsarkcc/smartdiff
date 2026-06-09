@@ -11,6 +11,7 @@ const state = {
   diff: null,
   activeSheet: null,
   loading: false,
+  diffView: (typeof localStorage !== "undefined" && localStorage.getItem("smartdiff_diff_view")) || "inline",  // "inline" | "split"
   // revision mode
   revLog: [],
   revOld: null,
@@ -661,6 +662,19 @@ async function selectFile(name) {
 
 // ── Toolbar ──
 
+function _viewToggleHtml() {
+  const isSplit = state.diffView === "split";
+  const label = isSplit ? t('toolbar.viewSplit') : t('toolbar.viewInline');
+  return `<button class="btn view-toggle" onclick="toggleDiffView()" title="${t('toolbar.viewToggleTitle')}">&#8646; ${label}</button>`;
+}
+
+function toggleDiffView() {
+  state.diffView = state.diffView === "split" ? "inline" : "split";
+  try { localStorage.setItem("smartdiff_diff_view", state.diffView); } catch (e) {}
+  renderToolbar();
+  renderContent();
+}
+
 function renderToolbar() {
   const tb = document.getElementById("toolbar");
 
@@ -679,6 +693,7 @@ function renderToolbar() {
     tb.innerHTML = `
       <span style="font-size:13px;color:var(--text-bright)">${state.selectedFile}</span>
       <div class="spacer" style="flex:1"></div>
+      ${_viewToggleHtml()}
       <button class="btn" onclick="doDiffLocal()" title="${t('toolbar.refreshTitle')}">&#8635; ${t('toolbar.refresh')}</button>`;
   } else if (state.mode === "revision") {
     if (state.revLog.length === 0) {
@@ -701,7 +716,9 @@ function renderToolbar() {
         <select id="revOld">${opts}</select>
         <label>${t('toolbar.newRev')}</label>
         <select id="revNew">${opts}</select>
-        <button class="btn primary" onclick="doDiffRevision()">${t('toolbar.compare')}</button>`;
+        <button class="btn primary" onclick="doDiffRevision()">${t('toolbar.compare')}</button>
+        <div class="spacer" style="flex:1"></div>
+        ${_viewToggleHtml()}`;
       document.getElementById("revOld").value = state.revLog[1].revision;
       document.getElementById("revNew").value = state.revLog[0].revision;
     }
@@ -860,7 +877,8 @@ function renderOverviewToolbar() {
     <button class="btn primary" onclick="doOverview()">${t('toolbar.compare')}</button>
     <div style="flex:1"></div>
     <button class="btn ${state.overviewFilter === 'all' ? 'primary' : ''}" data-filter-key="all" onclick="setOverviewFilter('all')">${t('overview.allFiles')}</button>
-    <button class="btn ${state.overviewFilter === 'data-only' ? 'primary' : ''}" data-filter-key="data-only" onclick="setOverviewFilter('data-only')">${t('overview.dataOnly')}</button>`;
+    <button class="btn ${state.overviewFilter === 'data-only' ? 'primary' : ''}" data-filter-key="data-only" onclick="setOverviewFilter('data-only')">${t('overview.dataOnly')}</button>
+    ${_viewToggleHtml()}`;
   if (state.overviewLog.length >= 2) {
     document.getElementById("ovRevOld").value = state.overviewLog[1].revision;
     document.getElementById("ovRevNew").value = state.overviewLog[0].revision;
@@ -1204,38 +1222,43 @@ function _colLetters(count) {
 }
 
 /**
- * Character-level inline diff using LCS (Longest Common Subsequence).
- * Returns HTML with <del> for removed and <ins> for added segments.
- * For strings > 200 chars, tokenizes by common delimiters first.
+ * Smart tokenizer for cell diffs.
+ * Groups consecutive digits and ASCII letters into single tokens so a value
+ * change like 738 -> 7074 becomes one whole-token change instead of scattered
+ * character fragments. Every other character (delimiters, CJK, symbols) is its
+ * own token, acting as an alignment anchor while keeping CJK at char-level.
  */
-function inlineDiff(oldStr, newStr) {
-  if (oldStr === newStr) return escHtml(newStr);
-  if (!oldStr) return `<ins>${escHtml(newStr)}</ins>`;
-  if (!newStr) return `<del>${escHtml(oldStr)}</del>`;
-
-  const CHAR_THRESHOLD = 200;
-  let oldToks, newToks;
-  if (oldStr.length <= CHAR_THRESHOLD && newStr.length <= CHAR_THRESHOLD) {
-    oldToks = Array.from(oldStr);
-    newToks = Array.from(newStr);
-  } else {
-    const split = s => {
-      const toks = [];
-      let buf = "";
-      for (const ch of s) {
-        if (",;{}() \t".includes(ch)) {
-          if (buf) { toks.push(buf); buf = ""; }
-          toks.push(ch);
-        } else {
-          buf += ch;
-        }
-      }
-      if (buf) toks.push(buf);
-      return toks;
-    };
-    oldToks = split(oldStr);
-    newToks = split(newStr);
+function _tokenizeCell(s) {
+  const toks = [];
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const ch = s[i];
+    if (ch >= "0" && ch <= "9") {
+      let j = i + 1;
+      while (j < n && ((s[j] >= "0" && s[j] <= "9") || s[j] === ".")) j++;
+      toks.push(s.slice(i, j));
+      i = j;
+    } else if ((ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z")) {
+      let j = i + 1;
+      while (j < n && ((s[j] >= "a" && s[j] <= "z") || (s[j] >= "A" && s[j] <= "Z"))) j++;
+      toks.push(s.slice(i, j));
+      i = j;
+    } else {
+      toks.push(ch);
+      i++;
+    }
   }
+  return toks;
+}
+
+/**
+ * Token-level diff using LCS (Longest Common Subsequence).
+ * Returns an array of ops: [{type:"eq"|"del"|"ins", val}].
+ */
+function _diffOps(oldStr, newStr) {
+  const oldToks = _tokenizeCell(oldStr);
+  const newToks = _tokenizeCell(newStr);
 
   const m = oldToks.length, n = newToks.length;
   const dp = [];
@@ -1267,7 +1290,18 @@ function inlineDiff(oldStr, newStr) {
     }
   }
   ops.reverse();
+  return ops;
+}
 
+/**
+ * Inline merged diff: <del> for removed, <ins> for added, plain for equal.
+ */
+function inlineDiff(oldStr, newStr) {
+  if (oldStr === newStr) return escHtml(newStr);
+  if (!oldStr) return `<ins>${escHtml(newStr)}</ins>`;
+  if (!newStr) return `<del>${escHtml(oldStr)}</del>`;
+
+  const ops = _diffOps(oldStr, newStr);
   let html = "";
   let delBuf = "", insBuf = "";
   const flush = () => {
@@ -1289,6 +1323,32 @@ function inlineDiff(oldStr, newStr) {
   return html;
 }
 
+/**
+ * Split diff: returns {oldHtml, newHtml}. Old row shows equal + removed
+ * (changed parts highlighted red); new row shows equal + added (green).
+ * Each row is the complete value so old -> new is read at a glance.
+ */
+function inlineDiffSplit(oldStr, newStr) {
+  const ops = _diffOps(oldStr, newStr);
+  let oldHtml = "", newHtml = "";
+  let delBuf = "", insBuf = "";
+  const flushDel = () => { if (delBuf) { oldHtml += `<del>${escHtml(delBuf)}</del>`; delBuf = ""; } };
+  const flushIns = () => { if (insBuf) { newHtml += `<ins>${escHtml(insBuf)}</ins>`; insBuf = ""; } };
+  for (const op of ops) {
+    if (op.type === "eq") {
+      flushDel(); flushIns();
+      oldHtml += escHtml(op.val);
+      newHtml += escHtml(op.val);
+    } else if (op.type === "del") {
+      delBuf += op.val;
+    } else {
+      insBuf += op.val;
+    }
+  }
+  flushDel(); flushIns();
+  return { oldHtml, newHtml };
+}
+
 function _rowHtml(row, colLetters, headers) {
   const st = row._status;
   let h;
@@ -1303,8 +1363,13 @@ function _rowHtml(row, colLetters, headers) {
       const col = colLetters[i];
       const ch = changes[col];
       if (ch) {
-        const diffHtml = inlineDiff(ch.old, ch.new);
-        h += `<td class="cell-modified" title="${col}${row._row}"><div class="inline-diff">${diffHtml}</div></td>`;
+        if (state.diffView === "split") {
+          const { oldHtml, newHtml } = inlineDiffSplit(ch.old, ch.new);
+          h += `<td class="cell-modified split" title="${col}${row._row}"><div class="cell-old">${oldHtml}</div><div class="cell-new">${newHtml}</div></td>`;
+        } else {
+          const diffHtml = inlineDiff(ch.old, ch.new);
+          h += `<td class="cell-modified" title="${col}${row._row}"><div class="inline-diff">${diffHtml}</div></td>`;
+        }
       } else {
         h += `<td>${escHtml(row.cells[col] || "")}</td>`;
       }

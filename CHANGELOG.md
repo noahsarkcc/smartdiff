@@ -4,6 +4,14 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## v1.3.6 (2026-06-09)
+
+**Cell diff readability**
+- Smart token-level diff: consecutive digits and ASCII letters are now treated as whole tokens, so a value change like `738` -> `7074` is highlighted as one block instead of scattered red/green character fragments. Greatly improves readability for compact structured data like `{5:738626,40,6:4235,400,...}`
+- New "Split" view: shows the old value and new value on two separate lines (old on top, new below), each complete and with changed parts highlighted, so old -> new can be read at a glance
+- View toggle (Inline / Split) in the toolbar for local, revision and overview modes; the preference is persisted to localStorage
+- Long values now wrap at token boundaries instead of mid-number
+
 ## v1.3.5 (2026-06-04)
 
 **New feature**

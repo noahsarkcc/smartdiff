@@ -39,6 +39,9 @@ const I18N_MESSAGES = {
     'toolbar.newRev': '新版本:',
     'toolbar.compare': '对比版本',
     'toolbar.browseHint': '浏览模式 - 查看文件内容',
+    'toolbar.viewInline': '内联',
+    'toolbar.viewSplit': '分行',
+    'toolbar.viewToggleTitle': '切换对比视图（内联 / 分行）',
 
     'merge.statsAuto': '自动 {0}',
     'merge.statsConflict': '冲突 {0}',
@@ -277,6 +280,9 @@ const I18N_MESSAGES = {
     'toolbar.newRev': 'New rev:',
     'toolbar.compare': 'Compare',
     'toolbar.browseHint': 'Browse mode - view file content',
+    'toolbar.viewInline': 'Inline',
+    'toolbar.viewSplit': 'Split',
+    'toolbar.viewToggleTitle': 'Toggle diff view (inline / split)',
 
     'merge.statsAuto': 'Auto {0}',
     'merge.statsConflict': 'Conflicts {0}',
