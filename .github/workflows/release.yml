@@ -12,6 +12,9 @@ jobs:
   build:
     name: Build SmartDiff.exe
     runs-on: windows-latest
+    env:
+      # Test scripts print Chinese; the Windows runner defaults to cp1252
+      PYTHONUTF8: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
