@@ -50,9 +50,14 @@ jobs:
           name: SmartDiff
           path: dist/SmartDiff.exe
 
+      - name: Extract release notes from changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: python .github/release_notes.py "${GITHUB_REF_NAME}" > release_notes.md
+
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/SmartDiff.exe
-          generate_release_notes: true
+          body_path: release_notes.md

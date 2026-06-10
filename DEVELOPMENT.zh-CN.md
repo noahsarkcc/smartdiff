@@ -268,7 +268,7 @@ pyinstaller --onefile --console --add-data "static;static" --name SmartDiff serv
 
 生成的 `dist/SmartDiff.exe` 可独立运行，无需 Python 环境。`config.json` 会在首次启动时自动生成，无需打包进去。
 
-**发版流程**：推送一个 `v*` tag（如 `git tag v1.4.0 && git push origin v1.4.0`），`.github/workflows/release.yml` 会在 Windows runner 上跑全量测试 → PyInstaller 构建 → 把 `SmartDiff.exe` 自动上传到该 tag 的 GitHub Release。客户端的应用内更新（`updater.py`）即从该资产下载。
+**发版流程**：先在 `CHANGELOG.zh-CN.md` / `CHANGELOG.md` 写好该版本的 `## vX.Y.Z` 小节，然后推送 `v*` tag（如 `git tag v1.4.0 && git push origin v1.4.0`）。`.github/workflows/release.yml` 会在 Windows runner 上跑全量测试 → PyInstaller 构建 → 用 `.github/release_notes.py` 从双语 CHANGELOG 提取该版本小节作为 release 正文 → 把 `SmartDiff.exe` 上传到该 tag 的 GitHub Release。客户端的应用内更新（`updater.py`）即从该资产下载、release 正文即为更新说明。
 
 ---
 

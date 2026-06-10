@@ -268,7 +268,7 @@ pyinstaller --onefile --console --add-data "static;static" --name SmartDiff serv
 
 The resulting `dist/SmartDiff.exe` runs standalone, no Python required. `config.json` is generated on first launch — don't bundle it.
 
-**Release flow**: push a `v*` tag (e.g. `git tag v1.4.0 && git push origin v1.4.0`); `.github/workflows/release.yml` runs the full test suite on a Windows runner, builds with PyInstaller and attaches `SmartDiff.exe` to the GitHub Release for that tag. The in-app updater (`updater.py`) downloads exactly that asset.
+**Release flow**: write the `## vX.Y.Z` section in `CHANGELOG.zh-CN.md` / `CHANGELOG.md` first, then push a `v*` tag (e.g. `git tag v1.4.0 && git push origin v1.4.0`). `.github/workflows/release.yml` runs the full test suite on a Windows runner, builds with PyInstaller, extracts that version's section from the bilingual changelogs via `.github/release_notes.py` as the release body, and attaches `SmartDiff.exe` to the GitHub Release. The in-app updater (`updater.py`) downloads exactly that asset and shows the release body as update notes.
 
 ---
 
