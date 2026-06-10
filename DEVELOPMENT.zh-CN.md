@@ -268,7 +268,14 @@ pyinstaller --onefile --console --add-data "static;static" --name SmartDiff serv
 
 生成的 `dist/SmartDiff.exe` 可独立运行，无需 Python 环境。`config.json` 会在首次启动时自动生成，无需打包进去。
 
-**发版流程**：先在 `CHANGELOG.zh-CN.md` / `CHANGELOG.md` 写好该版本的 `## vX.Y.Z` 小节，然后推送 `v*` tag（如 `git tag v1.4.0 && git push origin v1.4.0`）。`.github/workflows/release.yml` 会在 Windows runner 上跑全量测试 → PyInstaller 构建 → 用 `.github/release_notes.py` 从双语 CHANGELOG 提取该版本小节作为 release 正文 → 把 `SmartDiff.exe` 上传到该 tag 的 GitHub Release。客户端的应用内更新（`updater.py`）即从该资产下载、release 正文即为更新说明。
+**发版流程**：先在 `CHANGELOG.zh-CN.md` / `CHANGELOG.md` 写好该版本的 `## vX.Y.Z` 小节，然后推送 `v*` tag（如 `git tag v1.4.0 && git push origin v1.4.0`）。`.github/workflows/release.yml` 会在 Windows runner 上跑全量测试 → PyInstaller 构建 → 用 `.github/release_notes.py` 生成 release 正文 → 把 `SmartDiff.exe` 上传到该 tag 的 GitHub Release。客户端的应用内更新（`updater.py`）即从该资产下载、release 正文即为更新说明。
+
+**Release 正文约定**（`.github/release_notes.py`）：
+
+- 只取英文 `CHANGELOG.md` 的对应小节；中文版仅保留在仓库内
+- 标题命中黑名单（Tests / API / infrastructure / internal / CI）的粗体子节不上发布页，发布页只保留 New features / Bug fixes 等面向用户的内容
+- 跳版本发布时（中间版本没单独发过 release），中间版本各以一行 `Also includes vX.Y.Z: <小节首行简介>` 带过，因此每个版本小节标题下的第一行应是一句话总结
+- 末尾自动附 `Full Changelog` compare 链接（上一个 tag 由 CI 里 `git describe` 取得），技术细节由 compare 页和 CHANGELOG 兜底
 
 ---
 

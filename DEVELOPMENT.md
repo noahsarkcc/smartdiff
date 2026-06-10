@@ -268,7 +268,14 @@ pyinstaller --onefile --console --add-data "static;static" --name SmartDiff serv
 
 The resulting `dist/SmartDiff.exe` runs standalone, no Python required. `config.json` is generated on first launch — don't bundle it.
 
-**Release flow**: write the `## vX.Y.Z` section in `CHANGELOG.zh-CN.md` / `CHANGELOG.md` first, then push a `v*` tag (e.g. `git tag v1.4.0 && git push origin v1.4.0`). `.github/workflows/release.yml` runs the full test suite on a Windows runner, builds with PyInstaller, extracts that version's section from the bilingual changelogs via `.github/release_notes.py` as the release body, and attaches `SmartDiff.exe` to the GitHub Release. The in-app updater (`updater.py`) downloads exactly that asset and shows the release body as update notes.
+**Release flow**: write the `## vX.Y.Z` section in `CHANGELOG.zh-CN.md` / `CHANGELOG.md` first, then push a `v*` tag (e.g. `git tag v1.4.0 && git push origin v1.4.0`). `.github/workflows/release.yml` runs the full test suite on a Windows runner, builds with PyInstaller, generates the release body via `.github/release_notes.py`, and attaches `SmartDiff.exe` to the GitHub Release. The in-app updater (`updater.py`) downloads exactly that asset and shows the release body as update notes.
+
+**Release body conventions** (`.github/release_notes.py`):
+
+- English only — the section is taken from `CHANGELOG.md`; the Chinese changelog stays in-repo
+- Bold subsections whose title matches the blacklist (Tests / API / infrastructure / internal / CI) are excluded from the release page, keeping only user-facing content such as New features / Bug fixes
+- When a release skips versions (intermediate versions never released on their own), each one is summarized as a single `Also includes vX.Y.Z: <intro line>` — so the first line under every version heading should be a one-sentence summary
+- A `Full Changelog` compare link is appended automatically (the previous tag is resolved with `git describe` in CI); technical details are covered by the compare page and the changelog
 
 ---
 

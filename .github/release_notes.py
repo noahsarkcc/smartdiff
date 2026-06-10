@@ -1,51 +1,107 @@
-"""Extract the release-notes section for a tag from the bilingual changelogs.
+"""Generate the GitHub release body from CHANGELOG.md (English only).
 
-Usage: python .github/release_notes.py v1.4.0 > release_notes.md
+Usage: python .github/release_notes.py <tag> [prev_tag] > release_notes.md
 
-Looks up the "## vX.Y.Z" section in CHANGELOG.zh-CN.md and CHANGELOG.md
-(run from the repo root) and prints both, zh first. Falls back to a link
-to the changelog when the section is missing, so the release is never
-published with an empty body.
+- Extracts the "## vX.Y.Z" section of CHANGELOG.md for <tag> and drops
+  technical subsections (bold titles matching the blacklist below), so the
+  release page stays user-facing.
+- Versions between prev_tag (exclusive) and <tag> that never got their own
+  release are summarized as one "Also includes vX.Y.Z: <intro line>" each.
+- Appends a "Full Changelog" compare link when prev_tag is given.
+- Falls back to a CHANGELOG link when the section is missing, so a release
+  is never published with an empty body.
 """
-import io
 import re
 import sys
 
 REPO = "noahsarkcc/smartdiff"
+CHANGELOG = "CHANGELOG.md"
+
+# Bold subsection titles that are developer/infra detail, not user-facing.
+BLACKLIST = re.compile(r"tests?|api|infrastructure|internal|\bci\b", re.I)
+
+SECTION_RE = re.compile(r"^## v(\d+(?:\.\d+)*)([^\n]*)\n(.*?)(?=^## v|\Z)",
+                        re.M | re.S)
+BOLD_TITLE_RE = re.compile(r"^\*\*(.+?)\*\*\s*$")
 
 
-def extract_section(path: str, version: str):
+def parse_version(s) -> tuple:
+    nums = []
+    for p in str(s).strip().lstrip("vV").split("."):
+        m = re.match(r"\d+", p.strip())
+        nums.append(int(m.group()) if m else 0)
+    return tuple(nums) if nums else (0,)
+
+
+def load_sections():
+    """Return [(version_tuple, heading_line, body)] in file order (newest first)."""
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(CHANGELOG, encoding="utf-8") as f:
             text = f.read()
     except OSError:
-        return None
-    m = re.search(
-        rf"^(## v{re.escape(version)}\b[^\n]*\n.*?)(?=^## v|\Z)",
-        text, re.M | re.S)
-    return m.group(1).strip() if m else None
+        return []
+    out = []
+    for m in SECTION_RE.finditer(text):
+        heading = f"## v{m.group(1)}{m.group(2)}".rstrip()
+        out.append((parse_version(m.group(1)), heading, m.group(3)))
+    return out
+
+
+def filter_technical(body: str) -> str:
+    """Drop blacklisted bold-titled subsections from a section body."""
+    lines = []
+    skipping = False
+    for line in body.splitlines():
+        m = BOLD_TITLE_RE.match(line.strip())
+        if m:
+            skipping = bool(BLACKLIST.search(m.group(1)))
+        if not skipping:
+            lines.append(line.rstrip())
+    text = "\n".join(lines)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def intro_line(body: str) -> str:
+    """First plain text line of a section body (the one-liner summary)."""
+    for line in body.splitlines():
+        s = line.strip()
+        if s and not BOLD_TITLE_RE.match(s) and not s.startswith("-"):
+            return s
+    return ""
 
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: release_notes.py <tag>", file=sys.stderr)
+        print("usage: release_notes.py <tag> [prev_tag]", file=sys.stderr)
         return 1
-    version = sys.argv[1].strip().lstrip("vV")
-    zh = extract_section("CHANGELOG.zh-CN.md", version)
-    en = extract_section("CHANGELOG.md", version)
+    cur = parse_version(sys.argv[1])
+    prev = parse_version(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
 
+    sections = load_sections()
     parts = []
-    if zh:
-        parts.append(zh)
-    if en:
-        parts.append(en)
-    if not parts:
+
+    current = next((s for s in sections if s[0] == cur), None)
+    if current:
+        parts.append(f"{current[1]}\n\n{filter_technical(current[2])}")
+    else:
         parts.append(
             f"See [CHANGELOG.md](https://github.com/{REPO}/blob/main/CHANGELOG.md) "
             f"for details.")
 
-    out = "\n\n---\n\n".join(parts) + "\n"
-    sys.stdout.buffer.write(out.encode("utf-8"))
+    if prev is not None:
+        between = [s for s in sections if prev < s[0] < cur]
+        for ver, _heading, body in sorted(between, reverse=True):
+            tag = "v" + ".".join(str(n) for n in ver)
+            summary = intro_line(body)
+            parts.append(f"Also includes **{tag}**: {summary}" if summary
+                         else f"Also includes **{tag}** (see CHANGELOG).")
+        prev_tag = "v" + ".".join(str(n) for n in prev)
+        cur_tag = "v" + ".".join(str(n) for n in cur)
+        parts.append(f"**Full Changelog**: "
+                     f"https://github.com/{REPO}/compare/{prev_tag}...{cur_tag}")
+
+    sys.stdout.buffer.write(("\n\n".join(parts) + "\n").encode("utf-8"))
     return 0
 
 
