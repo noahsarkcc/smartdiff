@@ -29,6 +29,9 @@ const state = {
   mergeOnlyConflicts: false,         // 工具栏过滤：只看待解决
   mergeExpandMode: "smart",          // "smart"（按需）| "all" | "none"
   mergeRowExpanded: {},              // 单行手动展开覆盖：{ "sheet:rowKey": true|false }
+  // in-app update
+  updateInfo: null,                  // /api/update/check 结果
+  updateBusy: false,                 // 下载/重启流程进行中
 };
 
 let _lastMtime = 0;
@@ -93,6 +96,7 @@ async function init() {
       loadModifiedClassify();
       startRemoteVersionCheck();
     }
+    setTimeout(checkUpdateSilent, 5000);
   } catch (e) {
     document.querySelector(".main").innerHTML =
       `<div class="placeholder"><div class="icon">!</div><div class="text">${t('error.connection', e.message)}</div></div>`;
@@ -2244,6 +2248,7 @@ function openMergeFromConflict(fname) {
 
 function openSettings() {
   const hr = (state.config && state.config.header_row) || 1;
+  const ver = (state.config && state.config.version) || "?";
   const overlay = document.createElement("div");
   overlay.className = "update-modal-overlay";
   overlay.id = "settingsOverlay";
@@ -2254,6 +2259,14 @@ function openSettings() {
       <input type="number" id="settingsHeaderRow" min="1" value="${hr}">
       <div class="hint">${t('settings.headerRowHint')}</div>
     </div>
+    <div class="settings-form-group update-section">
+      <label>${t('update.section')}</label>
+      <div class="update-row">
+        <span class="update-current">${t('update.current')}: v${escHtml(ver)}</span>
+        <button class="update-check-btn" id="updateCheckBtn" onclick="checkUpdateManual()">${t('update.checkBtn')}</button>
+      </div>
+      <div id="updateStatus"></div>
+    </div>
     <div class="modal-footer">
       <button onclick="closeSettings()">${t('settings.cancel')}</button>
       <button class="primary" onclick="saveSettings()">${t('settings.save')}</button>
@@ -2261,6 +2274,7 @@ function openSettings() {
   </div>`;
   document.body.appendChild(overlay);
   document.getElementById("settingsHeaderRow").focus();
+  renderUpdateStatus();
 }
 
 function closeSettings() {
@@ -2298,6 +2312,144 @@ async function saveSettings() {
   } catch (e) {
     alert(t('error.connection', e.message));
   }
+}
+
+// ── In-app update ──
+
+function _setUpdateDot(visible) {
+  const dot = document.getElementById("updateDot");
+  if (!dot) return;
+  dot.hidden = !visible;
+  const btn = document.getElementById("settingsBtn");
+  if (btn) btn.title = visible ? t('update.badgeTitle') : t('settings.title');
+}
+
+async function checkUpdateSilent() {
+  try {
+    const info = await api("/api/update/check");
+    state.updateInfo = info;
+    _setUpdateDot(!!info.has_update);
+  } catch (_) { /* silent: never disturb the user */ }
+}
+
+async function checkUpdateManual() {
+  const btn = document.getElementById("updateCheckBtn");
+  if (btn) { btn.disabled = true; btn.textContent = t('update.checking'); }
+  try {
+    state.updateInfo = await api("/api/update/check?force=1");
+    _setUpdateDot(!!state.updateInfo.has_update);
+    renderUpdateStatus();
+  } catch (e) {
+    const box = document.getElementById("updateStatus");
+    if (box) box.innerHTML = `<div class="update-msg error">${escHtml(t('update.checkFailed', e.message))}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = t('update.checkBtn'); }
+  }
+}
+
+function renderUpdateStatus() {
+  const box = document.getElementById("updateStatus");
+  if (!box) return;
+  const info = state.updateInfo;
+  if (!info) { box.innerHTML = ""; return; }
+  if (!info.has_update) {
+    box.innerHTML = `<div class="update-msg ok">${escHtml(t('update.upToDate'))} (v${escHtml(info.latest || info.current)})</div>`;
+    return;
+  }
+  const links = `<a href="${escHtml(info.html_url)}" target="_blank" rel="noopener">${t('update.openRelease')}</a>
+    <a href="${escHtml(info.proxy_page_url || info.html_url)}" target="_blank" rel="noopener">(${t('update.proxyLink')})</a>`;
+  let action;
+  if (!info.is_frozen) {
+    action = `<div class="update-msg">${escHtml(t('update.sourceMode'))}</div><div class="update-links">${links}</div>`;
+  } else if (!info.asset_url) {
+    action = `<div class="update-msg">${escHtml(t('update.noAsset'))}</div><div class="update-links">${links}</div>`;
+  } else {
+    action = `<button class="update-now-btn" id="updateNowBtn" onclick="startUpdateDownload()">${t('update.updateNow')}</button>
+      <div class="update-links">${links}</div>`;
+  }
+  const notes = (info.notes || "").trim();
+  box.innerHTML = `<div class="update-msg new">${escHtml(t('update.newVersion', info.latest))}</div>
+    ${notes ? `<div class="update-notes">${escHtml(notes)}</div>` : ""}
+    ${action}
+    <div id="updateProgress"></div>`;
+}
+
+async function startUpdateDownload() {
+  if (state.updateBusy) return;
+  state.updateBusy = true;
+  const btn = document.getElementById("updateNowBtn");
+  if (btn) btn.disabled = true;
+  try {
+    await api("/api/update/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ asset_url: state.updateInfo.asset_url }),
+    });
+    _pollUpdateProgress();
+  } catch (e) {
+    state.updateBusy = false;
+    if (btn) btn.disabled = false;
+    _renderUpdateProgress(`<div class="update-msg error">${escHtml(t('update.downloadFailed', e.message))}</div>`);
+  }
+}
+
+function _renderUpdateProgress(html) {
+  const el = document.getElementById("updateProgress");
+  if (el) el.innerHTML = html;
+}
+
+function _pollUpdateProgress() {
+  const timer = setInterval(async () => {
+    let p;
+    try {
+      p = await api("/api/update/progress");
+    } catch (_) { return; }
+    if (p.status === "downloading") {
+      const pct = p.percent || 0;
+      _renderUpdateProgress(`<div class="update-progress-bar"><div class="fill" style="width:${pct}%"></div></div>
+        <div class="update-msg">${escHtml(t('update.downloading', pct))}${p.total ? ` (${formatSize(p.downloaded)} / ${formatSize(p.total)})` : ""}</div>`);
+    } else if (p.status === "ready") {
+      clearInterval(timer);
+      _renderUpdateProgress(`<div class="update-progress-bar"><div class="fill" style="width:100%"></div></div>
+        <div class="update-msg">${escHtml(t('update.restarting'))}</div>`);
+      _applyUpdateAndRestart();
+    } else if (p.status === "error") {
+      clearInterval(timer);
+      state.updateBusy = false;
+      const btn = document.getElementById("updateNowBtn");
+      if (btn) btn.disabled = false;
+      _renderUpdateProgress(`<div class="update-msg error">${escHtml(t('update.downloadFailed', p.error || "?"))}</div>`);
+    }
+  }, 500);
+}
+
+async function _applyUpdateAndRestart() {
+  const oldVersion = (state.config && state.config.version) || "";
+  try {
+    await api("/api/update/apply", { method: "POST" });
+  } catch (e) {
+    state.updateBusy = false;
+    _renderUpdateProgress(`<div class="update-msg error">${escHtml(t('update.applyFailed', e.message))}</div>`);
+    return;
+  }
+  // Server exits, the helper script swaps the exe and relaunches it.
+  // Poll /api/config until the new version answers, then reload the page.
+  const started = Date.now();
+  const timer = setInterval(async () => {
+    if (Date.now() - started > 120000) {
+      clearInterval(timer);
+      state.updateBusy = false;
+      _renderUpdateProgress(`<div class="update-msg error">${escHtml(t('update.applyFailed', "timeout"))}</div>`);
+      return;
+    }
+    try {
+      const cfg = await fetch(`${API}/api/config`).then(r => r.json());
+      if (cfg.version && cfg.version !== oldVersion) {
+        clearInterval(timer);
+        location.reload();
+      }
+    } catch (_) { /* server restarting, keep polling */ }
+  }, 1000);
 }
 
 function reRenderAll() {

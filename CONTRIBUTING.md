@@ -15,10 +15,11 @@ Thanks for taking the time to consider contributing! SmartDiff is a small, focus
    ```bash
    python tests/test_merger.py     # 29 cases, no SVN required
    python tests/test_differ.py     # 11 cases, no SVN required
+   python tests/test_updater.py    # 20 cases, mocked network
    python tests/test_api_merge.py  # 16 cases, mock SVN
    ```
 4. **Add tests** for any new behavior. The test files use plain `assert` + `print` style — no pytest needed.
-5. **Open a PR** against `main`. CI will run the same two test scripts on Python 3.8 / 3.10 / 3.12.
+5. **Open a PR** against `main`. CI will run the same test scripts on Python 3.8 / 3.10 / 3.12.
 
 ## Code style
 
@@ -57,11 +58,13 @@ Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml). Please inc
    ```
 3. **跑测试**：
    ```bash
-   python tests/test_merger.py     # 27 用例，无需 SVN
-   python tests/test_api_merge.py  # 15 用例，mock SVN
+   python tests/test_merger.py     # 29 用例，无需 SVN
+   python tests/test_differ.py     # 11 用例，无需 SVN
+   python tests/test_updater.py    # 20 用例，mock 网络
+   python tests/test_api_merge.py  # 16 用例，mock SVN
    ```
 4. **新功能配新测试**。测试文件是纯 `assert` + `print` 风格，不依赖 pytest。
-5. **提 PR** 到 `main`。CI 会在 Python 3.8 / 3.10 / 3.12 上跑同样两个脚本。
+5. **提 PR** 到 `main`。CI 会在 Python 3.8 / 3.10 / 3.12 上跑同样的测试脚本。
 
 ## 代码风格
 

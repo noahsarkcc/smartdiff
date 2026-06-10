@@ -4,6 +4,27 @@
 
 SmartDiff 的所有重要变更都记录在这里，格式大致遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/) 风格。
 
+## v1.4.0（2026-06-10）
+
+应用内自动更新。
+
+**新功能**
+- 应用内检查更新：启动 5 秒后静默检查 GitHub Releases，发现新版本时设置按钮（齿轮）显示红点提示
+- 设置弹窗新增「版本与更新」区：显示当前版本、手动检查更新、查看新版本说明
+- 一键更新（exe 模式）：后台下载新版 `SmartDiff.exe` → 显示进度条 → 自动替换并重启 → 页面自动刷新到新版本；`config.json` 等用户配置不受影响
+- GitHub 直连失败时自动走加速代理（`github.2436666.xyz`）重试，检查与下载均支持；会话内记住可用通道
+- 源码模式运行时提示使用 `git pull` 更新，并提供发布页直连/加速双链接
+
+**发版基建**
+- 新增 `.github/workflows/release.yml`：推送 `v*` tag 自动在 Windows 上跑全量测试、PyInstaller 构建并把 `SmartDiff.exe` 上传到对应 release（此前 release 无 exe 资产，一键更新自此版本起闭环）
+- 修正 `build.bat`：依赖改为安装 `requirements.txt`（补齐 openpyxl/xlrd），构建参数与 CI 对齐
+
+**API**
+- 新增 `GET /api/update/check`（结果缓存 1 小时，`?force=1` 跳过）、`POST /api/update/download`、`GET /api/update/progress`、`POST /api/update/apply`
+
+**测试**
+- 新增 `tests/test_updater.py`（20 个用例）：版本号比较、代理回退、`check_update` 解析、下载状态机、四个端点行为；已接入 CI，全量 76 个用例通过
+
 ## v1.3.7（2026-06-10）
 
 可靠性专项修复（来自全量代码评审，共 12 项）。

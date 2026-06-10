@@ -13,6 +13,7 @@
   - [xml_differ.py — semantic diff engine](#xml_differpy--semantic-diff-engine)
   - [xml_merger.py — three-way semantic merge engine](#xml_mergerpy--three-way-semantic-merge-engine)
   - [svn_helper.py — SVN integration](#svn_helperpy--svn-integration)
+  - [updater.py — in-app auto-update](#updaterpy--in-app-auto-update)
   - [server.py — Flask REST API](#serverpy--flask-rest-api)
   - [static/ — frontend SPA](#static--frontend-spa)
 - [Extension Guide](#extension-guide)
@@ -31,14 +32,20 @@ smartdiff/
 ├── xml_differ.py        # Semantic diff engine
 ├── xml_merger.py        # Three-way semantic merge engine (BASE/MINE/THEIRS)
 ├── svn_helper.py        # SVN CLI integration
+├── updater.py           # In-app auto-update (GitHub Releases + acceleration proxy)
 ├── config.json          # Workspace config (generated at runtime, .gitignored)
 ├── requirements.txt     # Python dependencies
 ├── start.bat            # Windows one-click launcher
+├── build.bat            # Local PyInstaller build script (kept in sync with release.yml)
+├── .github/workflows/
+│   ├── test.yml         # CI: full test suite on 3 Python versions
+│   └── release.yml      # Pushing a v* tag builds and uploads SmartDiff.exe
 ├── static/              # Frontend SPA (index.html + css + js + img)
 ├── tests/
 │   ├── TESTING.md / TESTING.zh-CN.md   # Testing guides
 │   ├── test_merger.py                  # xml_merger unit tests (29 cases)
 │   ├── test_differ.py                  # xml_differ unit tests (11 cases)
+│   ├── test_updater.py                 # updater + /api/update/* tests (20 cases)
 │   ├── test_api_merge.py               # HTTP API + mock SVN end-to-end (16 cases)
 │   ├── setup_demo_svn.bat              # Bootstrap a demo SVN repo for manual UI tests
 │   └── data/                           # Three-way fixtures: base.xml / mine.xml / theirs.xml
@@ -158,6 +165,17 @@ Wraps the SVN CLI and handles encoding.
 - **Binary support**: `_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` return raw bytes. XML content also goes through the raw path and is decoded by ElementTree per its XML declaration (UTF-16 etc. supported)
 - **`smart_update`** supports three conflict policies: `skip / theirs / mine`; conflict state is detected via `svn status --xml` (`get_conflicted_files`), independent of the svn output locale
 
+### `updater.py` — in-app auto-update
+
+Update check / download / self-replace, implemented with the standard library only (urllib).
+
+- **Proxy fallback** (`_fetch`): try a direct connection first (8s timeout); on failure retry via `PROXY_PREFIX + url` (`github.2436666.xyz`). The working channel is remembered for the session (`_use_proxy`) and reused for subsequent requests and the download
+- **`check_update(current)`**: queries GitHub `releases/latest`; versions are compared as int tuples (`v1.3.7` → `(1,3,7)`, zero-padded to equal length); the `SmartDiff.exe` asset is looked up in the release assets, `asset_url=None` when missing (the UI degrades to "Open Release Page")
+- **Download state machine**: a module-level singleton `{status: idle|downloading|ready|error, percent, downloaded, total, error, path}`; `start_download` spawns a background thread that streams into `SmartDiff.exe.new.part` and `os.replace`s it to `.new` on completion (same atomic-write idea as the merge write-back)
+- **`apply_update()`** (frozen only): writes a self-deleting `smartdiff_update.bat` next to the exe (loops `del` until the old exe is unlocked → `move` the new one in → `start` it), launches it with `DETACHED_PROCESS` and exits the old process via a delayed `os._exit(0)`
+- **Source mode**: check works; download/apply return a "use git pull" message and touch nothing
+- `config.json` lives next to the exe, so swapping the executable never affects user config
+
 ### `server.py` — Flask REST API
 
 | Method | Path | Description |
@@ -176,6 +194,10 @@ Wraps the SVN CLI and handles encoding.
 | POST | `/api/merge/preview` | Three-way merge preview (`.xml` only) |
 | POST | `/api/merge/apply` | Apply resolutions and write back |
 | POST | `/api/merge/svn-mark-resolved` | Invoke `svn resolve --accept working` |
+| GET | `/api/update/check` | Check for a newer release (cached 1h, `?force=1` bypasses) |
+| POST | `/api/update/download` | Start the background download of the new exe |
+| GET | `/api/update/progress` | Download progress / state |
+| POST | `/api/update/apply` | Self-replace and restart (frozen only; 400 in source mode) |
 
 Every endpoint accepting a `file` parameter goes through `_safe_workspace_path`: the joined path is resolved with `realpath` and must stay inside the active workspace — `..` and absolute-path traversal return 400.
 
@@ -235,14 +257,18 @@ To support other spreadsheet formats (see `xlsx_parser.py` for reference):
 3. Dispatch by extension in `server.py`'s `_parse_file` / `_parse_content`
 4. For binary formats, use the `_raw` family of helpers in `svn_helper` to obtain raw bytes
 
-### PyInstaller packaging
+### PyInstaller packaging & releasing
+
+Run `build.bat` for a local build, which is equivalent to:
 
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --add-data "static;static" --name SmartDiff server.py
+pip install -r requirements.txt pyinstaller
+pyinstaller --onefile --console --add-data "static;static" --name SmartDiff server.py
 ```
 
 The resulting `dist/SmartDiff.exe` runs standalone, no Python required. `config.json` is generated on first launch — don't bundle it.
+
+**Release flow**: push a `v*` tag (e.g. `git tag v1.4.0 && git push origin v1.4.0`); `.github/workflows/release.yml` runs the full test suite on a Windows runner, builds with PyInstaller and attaches `SmartDiff.exe` to the GitHub Release for that tag. The in-app updater (`updater.py`) downloads exactly that asset.
 
 ---
 
@@ -255,10 +281,13 @@ python tests\test_merger.py     # 29 cases
 # 2) Diff engine unit tests (no SVN required)
 python tests\test_differ.py     # 11 cases
 
-# 3) HTTP API end-to-end (mock SVN)
+# 3) Updater + /api/update/* tests (mocked network)
+python tests\test_updater.py    # 20 cases
+
+# 4) HTTP API end-to-end (mock SVN)
 python tests\test_api_merge.py  # 16 cases
 
-# 4) Manual UI testing (requires the svn CLI)
+# 5) Manual UI testing (requires the svn CLI)
 tests\setup_demo_svn.bat        # Creates a three-way aligned demo repo at %TEMP%\xmldev_demo_svn\
 start.bat                       # Then add the wc directory as a workspace from the header
 ```

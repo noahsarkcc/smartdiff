@@ -1415,3 +1415,74 @@ body {
   color: var(--text-dim);
   margin-top: 4px;
 }
+
+/* In-app update */
+.settings-btn { position: relative; }
+.update-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f85149;
+  border: 1px solid var(--bg);
+}
+.update-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.update-current { font-size: 12px; color: var(--text); }
+.update-check-btn, .update-now-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+}
+.update-check-btn:hover, .update-now-btn:hover { background: var(--bg-hover); }
+.update-check-btn:disabled, .update-now-btn:disabled { opacity: 0.6; cursor: default; }
+.update-now-btn {
+  margin-top: 8px;
+  background: #238636;
+  border-color: #238636;
+  color: #fff;
+}
+.update-now-btn:hover:not(:disabled) { background: #2ea043; }
+.update-msg { font-size: 12px; color: var(--text); margin-top: 8px; }
+.update-msg.ok { color: #3fb950; }
+.update-msg.new { color: var(--text-bright); font-weight: 600; }
+.update-msg.error { color: #f85149; }
+.update-notes {
+  margin-top: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+}
+.update-links { margin-top: 6px; font-size: 12px; }
+.update-links a { color: var(--accent); text-decoration: none; margin-right: 8px; }
+.update-links a:hover { text-decoration: underline; }
+.update-progress-bar {
+  margin-top: 8px;
+  height: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.update-progress-bar .fill {
+  height: 100%;
+  background: #238636;
+  transition: width 0.3s ease;
+}

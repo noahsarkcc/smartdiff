@@ -4,6 +4,27 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## v1.4.0 (2026-06-10)
+
+In-app auto-update.
+
+**New features**
+- In-app update check: 5 seconds after startup the app silently queries GitHub Releases; when a newer version exists, a red dot appears on the settings (gear) button
+- New "Version & Updates" section in the settings dialog: shows the current version, a manual check button and the new release notes
+- One-click update (exe mode): downloads the new `SmartDiff.exe` in the background → shows a progress bar → swaps the executable and restarts → the page reloads on the new version automatically; user config (`config.json`) is untouched
+- When a direct GitHub connection fails, both the check and the download automatically retry through the acceleration proxy (`github.2436666.xyz`); the working channel is remembered for the session
+- When running from source, the dialog suggests `git pull` and offers direct/proxied release page links
+
+**Release infrastructure**
+- New `.github/workflows/release.yml`: pushing a `v*` tag runs the full test suite on Windows, builds with PyInstaller and attaches `SmartDiff.exe` to the release (previous releases had no exe asset; one-click updates are fully closed-loop from this version on)
+- `build.bat` fixed: installs `requirements.txt` (adds the missing openpyxl/xlrd) and uses the same build flags as CI
+
+**API**
+- New `GET /api/update/check` (result cached for 1 hour, `?force=1` bypasses), `POST /api/update/download`, `GET /api/update/progress`, `POST /api/update/apply`
+
+**Tests**
+- New `tests/test_updater.py` (20 cases): version comparison, proxy fallback, `check_update` parsing, download state machine, all four endpoints; wired into CI, all 76 cases pass
+
 ## v1.3.7 (2026-06-10)
 
 Reliability hardening release (12 fixes from a full code review).

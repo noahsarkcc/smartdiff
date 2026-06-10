@@ -13,6 +13,7 @@
   - [xml_differ.py — 语义 Diff 引擎](#xml_differpy--语义-diff-引擎)
   - [xml_merger.py — 三方语义合并引擎](#xml_mergerpy--三方语义合并引擎)
   - [svn_helper.py — SVN 集成](#svn_helperpy--svn-集成)
+  - [updater.py — 应用内自动更新](#updaterpy--应用内自动更新)
   - [server.py — Flask REST API](#serverpy--flask-rest-api)
   - [static/ — 前端 SPA](#static--前端-spa)
 - [扩展指南](#扩展指南)
@@ -31,14 +32,20 @@ smartdiff/
 ├── xml_differ.py        # 语义 Diff 引擎
 ├── xml_merger.py        # 三方语义合并引擎（BASE/MINE/THEIRS）
 ├── svn_helper.py        # SVN CLI 集成
+├── updater.py           # 应用内自动更新（GitHub Releases + 加速代理）
 ├── config.json          # 工作区配置（运行时生成，已 .gitignore）
 ├── requirements.txt     # Python 依赖
 ├── start.bat            # Windows 一键启动脚本
+├── build.bat            # PyInstaller 本地打包脚本（与 release.yml 对齐）
+├── .github/workflows/
+│   ├── test.yml         # CI：3 个 Python 版本跑全量测试
+│   └── release.yml      # 推 v* tag 自动构建并上传 SmartDiff.exe
 ├── static/              # 前端 SPA（index.html + css + js + img）
 ├── tests/
 │   ├── TESTING.md / TESTING.zh-CN.md   # 测试指南
 │   ├── test_merger.py                  # xml_merger 单元测试（29 用例）
 │   ├── test_differ.py                  # xml_differ 单元测试（11 用例）
+│   ├── test_updater.py                 # updater + /api/update/* 测试（20 用例）
 │   ├── test_api_merge.py               # HTTP API + mock SVN 端到端（16 用例）
 │   ├── setup_demo_svn.bat              # 一键搭建 SVN 演示仓库供手工 UI 测试
 │   └── data/                           # 三方测试数据：base.xml / mine.xml / theirs.xml
@@ -158,6 +165,17 @@ smartdiff/
 - **二进制支持**：`_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` 返回原始字节流。XML 文件内容也走 raw 路径，由 ElementTree 按 XML 声明自动解码（支持 UTF-16 等编码）
 - **`smart_update`** 支持三种冲突策略：`skip / theirs / mine`；冲突状态通过 `svn status --xml`（`get_conflicted_files`）判断，与 svn 输出语言无关
 
+### `updater.py` — 应用内自动更新
+
+纯标准库（urllib）实现的检查更新 / 下载 / 自替换模块。
+
+- **代理回退**（`_fetch`）：先直连（超时 8s），失败后用 `PROXY_PREFIX + url`（`github.2436666.xyz`）重试；本次会话记住可用通道（`_use_proxy`），后续请求与下载直接复用
+- **`check_update(current)`**：请求 GitHub `releases/latest`，版本号按 int 元组比较（`v1.3.7` → `(1,3,7)`，位数不齐补零）；从 assets 中找 `SmartDiff.exe` 资产，没有则 `asset_url=None`（前端退化为「打开发布页」）
+- **下载状态机**：模块级单例 `{status: idle|downloading|ready|error, percent, downloaded, total, error, path}`；`start_download` 启动后台线程流式写入 `SmartDiff.exe.new.part`，完成后 `os.replace` 改名 `.new`（沿用原子写思路）
+- **`apply_update()`**（仅 frozen）：在 exe 目录生成自删除的 `smartdiff_update.bat`（循环 `del` 等待旧 exe 解锁 → `move` 替换 → `start` 新 exe），以 `DETACHED_PROCESS` 启动后延迟 `os._exit(0)` 退出旧进程
+- **源码模式**：check 可用；download / apply 返回「请用 git pull」提示，不做任何文件操作
+- `config.json` 在 exe 同目录，替换 exe 不影响用户配置
+
 ### `server.py` — Flask REST API
 
 | 方法 | 路径 | 说明 |
@@ -176,6 +194,10 @@ smartdiff/
 | POST | `/api/merge/preview` | 三方合并预览（仅 .xml） |
 | POST | `/api/merge/apply` | 应用合并决议并写回 |
 | POST | `/api/merge/svn-mark-resolved` | 调用 `svn resolve --accept working` |
+| GET | `/api/update/check` | 检查新版本（缓存 1 小时，`?force=1` 跳过） |
+| POST | `/api/update/download` | 启动后台下载新版 exe |
+| GET | `/api/update/progress` | 下载进度 / 状态 |
+| POST | `/api/update/apply` | 自替换并重启（仅 frozen，源码模式 400） |
 
 所有接收 `file` 参数的端点都经过 `_safe_workspace_path` 校验：路径 join 后取 `realpath`，必须落在当前工作区目录内，`..` 与绝对路径穿越一律返回 400。
 
@@ -235,14 +257,18 @@ def validate_workbook(parsed: dict, rules: list) -> list:
 3. 在 `server.py` 的 `_parse_file` / `_parse_content` 调度函数中按扩展名分发
 4. 二进制格式使用 `svn_helper` 的 `_raw` 系列函数获取原始字节
 
-### PyInstaller 打包
+### PyInstaller 打包与发版
+
+本地打包直接运行 `build.bat`，等价于：
 
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --add-data "static;static" --name SmartDiff server.py
+pip install -r requirements.txt pyinstaller
+pyinstaller --onefile --console --add-data "static;static" --name SmartDiff server.py
 ```
 
 生成的 `dist/SmartDiff.exe` 可独立运行，无需 Python 环境。`config.json` 会在首次启动时自动生成，无需打包进去。
+
+**发版流程**：推送一个 `v*` tag（如 `git tag v1.4.0 && git push origin v1.4.0`），`.github/workflows/release.yml` 会在 Windows runner 上跑全量测试 → PyInstaller 构建 → 把 `SmartDiff.exe` 自动上传到该 tag 的 GitHub Release。客户端的应用内更新（`updater.py`）即从该资产下载。
 
 ---
 
@@ -255,10 +281,13 @@ python tests\test_merger.py     # 29 用例
 # 2) Diff 引擎单元测试（无需 SVN）
 python tests\test_differ.py     # 11 用例
 
-# 3) HTTP API 端到端（mock SVN）
+# 3) 更新模块 + /api/update/* 测试（mock 网络）
+python tests\test_updater.py    # 20 用例
+
+# 4) HTTP API 端到端（mock SVN）
 python tests\test_api_merge.py  # 16 用例
 
-# 4) 手工 UI 测试（需要 svn CLI）
+# 5) 手工 UI 测试（需要 svn CLI）
 tests\setup_demo_svn.bat        # 在 %TEMP%\xmldev_demo_svn\ 搭一个三方对齐的演示仓库
 start.bat                       # 然后在头部添加 wc 目录作为工作区
 ```

@@ -2,11 +2,12 @@
 Flask server for SmartDiff.
 Provides REST API for parsing, diffing, and SVN integration.
 """
-__version__ = "1.3.7"
+__version__ = "1.4.0"
 
 import os
 import sys
 import json
+import time
 import webbrowser
 import threading
 from flask import Flask, request, jsonify, send_from_directory
@@ -16,6 +17,7 @@ import xlsx_parser
 import xml_differ
 import xml_merger
 import svn_helper
+import updater
 
 
 SUPPORTED_EXTENSIONS = (".xml", ".xlsx", ".xls")
@@ -196,6 +198,61 @@ def api_config():
         "active_workspace": cfg["active_workspace"],
         "header_row": cfg.get("header_row", 1),
     })
+
+
+# --- In-app update -----------------------------------------------------------
+
+UPDATE_CACHE_TTL = 3600  # avoid hammering the GitHub API (rate limit)
+_update_cache = {"result": None, "ts": 0.0}
+_update_cache_lock = threading.Lock()
+
+
+@app.route("/api/update/check")
+def api_update_check():
+    """Check GitHub Releases for a newer version (cached 1h; ?force=1 bypasses)."""
+    force = request.args.get("force") == "1"
+    now = time.time()
+    with _update_cache_lock:
+        cached = _update_cache["result"]
+        if not force and cached and now - _update_cache["ts"] < UPDATE_CACHE_TTL:
+            return jsonify(dict(cached, cached=True))
+    try:
+        result = updater.check_update(__version__)
+    except Exception as e:
+        return jsonify({"error": f"update check failed: {e}"}), 502
+    with _update_cache_lock:
+        _update_cache["result"] = result
+        _update_cache["ts"] = now
+    return jsonify(dict(result, cached=False))
+
+
+@app.route("/api/update/download", methods=["POST"])
+def api_update_download():
+    """Start downloading the update asset in a background thread."""
+    if not updater.is_frozen():
+        return jsonify({"error": "source mode: update via git pull"}), 400
+    body = request.get_json(silent=True) or {}
+    with _update_cache_lock:
+        cached = _update_cache["result"] or {}
+    asset_url = body.get("asset_url") or cached.get("asset_url")
+    if not asset_url:
+        return jsonify({"error": "no update asset available; check for updates first"}), 400
+    return jsonify(updater.start_download(asset_url))
+
+
+@app.route("/api/update/progress")
+def api_update_progress():
+    """Return the current download state."""
+    return jsonify(updater.get_progress())
+
+
+@app.route("/api/update/apply", methods=["POST"])
+def api_update_apply():
+    """Swap in the downloaded exe and restart (frozen mode only)."""
+    result = updater.apply_update()
+    if not result.get("ok"):
+        return jsonify({"error": result.get("error")}), 400
+    return jsonify({"ok": True})
 
 
 @app.route("/api/workspaces", methods=["GET"])

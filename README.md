@@ -7,7 +7,7 @@
 [![Tests](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml/badge.svg)](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/noahsarkcc/smartdiff)](https://github.com/noahsarkcc/smartdiff/releases)
 
-> **v1.3.7** · Semantic diff and three-way merge for spreadsheet-based configuration data
+> **v1.4.0** · Semantic diff and three-way merge for spreadsheet-based configuration data
 
 SmartDiff is a zero-dependency, locally-runnable diff tool for structured configuration data maintained as Excel spreadsheets (`.xml` / `.xlsx` / `.xls`). It automatically filters out style, window-state, and column-width noise to show **only the real data changes**, with ID-based smart row matching, cell-level three-way semantic merge, and optional SVN integration.
 
@@ -54,6 +54,7 @@ SmartDiff is a zero-dependency, locally-runnable diff tool for structured config
 | **Three-way merge** | Cell-level + row-level auto merge over `BASE / MINE / THEIRS` (`.xml` only). Same-cell conflicts, delete-vs-edit, and same-ID-different-content additions can be resolved one by one and written back to the original XML. |
 | **SVN integration** | Polls the remote repository for new revisions (top banner reminder); smart update with conflict categorization (keep mine / take latest / skip / semantic merge for `.xml`); auto `svn resolve --accept working` after merge. Revision history via the remote URL — no `svn update` required. |
 | **Format & UX** | Parses `.xml` (SpreadsheetML 2003), `.xlsx` (Office Open XML), and `.xls` with a unified diff view. Configurable header row for tables with metadata rows (obj/type/desc/key) before the actual column headers. Multi-sheet, multi-workspace, auto-refresh on file change, batch rendering for large tables. |
+| **Auto-update** | In-app update check (red dot on the settings gear); one-click download, swap and restart in exe mode. Falls back to an acceleration proxy automatically when GitHub is unreachable. |
 
 ---
 
@@ -146,6 +147,7 @@ From the project root:
 ```powershell
 python tests\test_merger.py
 python tests\test_differ.py
+python tests\test_updater.py
 python tests\test_api_merge.py
 ```
 
@@ -153,6 +155,7 @@ Current coverage:
 
 - `test_merger.py`: 29 merge-engine cases covering 5 cell states, 10 row-level states, resolution validation, XML write-back roundtrip, ExpandedRowCount maintenance, and comment preservation
 - `test_differ.py`: 11 diff-engine cases covering three-pass row matching (ID / content hash / row-number fallback), duplicate IDs, comment-column filtering, ID detection with header_row > 1, and UTF-16 parsing
+- `test_updater.py`: 20 updater cases covering version comparison, proxy fallback, release parsing, the download state machine, and the `/api/update/*` endpoints
 - `test_api_merge.py`: 16 API cases covering preview / apply / svn-mark-resolved / recursive file listing / path-traversal rejection / SVN update `check_only` subdirectory conflict detection
 
 See [tests/TESTING.md](tests/TESTING.md) for the full manual test walkthrough.

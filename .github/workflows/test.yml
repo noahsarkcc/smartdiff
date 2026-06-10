@@ -36,5 +36,8 @@ jobs:
       - name: Run xml_differ unit tests
         run: python tests/test_differ.py
 
+      - name: Run updater unit tests
+        run: python tests/test_updater.py
+
       - name: Run /api/merge HTTP tests
         run: python tests/test_api_merge.py
