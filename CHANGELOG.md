@@ -4,6 +4,32 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## v1.3.7 (2026-06-10)
+
+Reliability hardening release (12 fixes from a full code review).
+
+**Data safety (high)**
+- Semantic merge write-back is now atomic: the result is written to a temp file in the same directory and swapped in with `os.replace()`, so a failed write can no longer corrupt the working copy and lose uncommitted local edits
+- `ss:ExpandedRowCount` / `ss:ExpandedColumnCount` are kept in sync after merge inserts rows, preventing Excel from refusing to open files whose actual extent exceeds the declared counts
+- Remote conflict detection and per-file history now decode SVN percent-encoded URLs consistently, so Chinese/non-ASCII file names no longer miss conflicts or lose history entries
+
+**Robustness (medium)**
+- All file-name-accepting APIs validate that the resolved path stays inside the workspace, rejecting `..` and absolute-path traversal
+- Startup port cleanup matches the local-address port exactly instead of substring matching, so processes on neighboring ports (e.g. 55660-55669) are never killed by mistake
+- Smart SVN update detects conflicts via `svn status --xml` instead of sniffing localized output strings (works correctly under Chinese locales); the updated-file count excludes `Updating` / `At revision` noise lines
+- Merge write-back preserves `<!-- -->` XML comments inside the document (previously silently dropped by ElementTree)
+
+**Other improvements (low)**
+- SVN file content is fetched as raw bytes and decoded per the XML declaration, supporting UTF-16 and other non-UTF-8 spreadsheet files
+- Auto ID-column detection respects the "Header Row" setting; metadata rows (obj/type/desc/key) no longer break the uniqueness check
+- Config reads/writes are guarded by a lock; a failed `config.json` save now surfaces a `warning` in the API response instead of being silently ignored
+- Opening the workspace directory uses `os.startfile`, removing the simulated Alt-key foreground-focus hack
+
+**Tests**
+- New `tests/test_differ.py` (11 cases): non-cascading insert/delete, Pass 2/3 matching, duplicate IDs, comment-column filtering, ID detection with header_row > 1, UTF-16 parsing; wired into CI
+- `test_merger.py` gains ExpandedRowCount growth and XML comment preservation regression cases (29 total)
+- `test_api_merge.py` gains a path-traversal rejection case (16 total); all 56 cases pass
+
 ## v1.3.6 (2026-06-09)
 
 **Cell diff readability**

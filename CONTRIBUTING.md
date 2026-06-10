@@ -13,8 +13,9 @@ Thanks for taking the time to consider contributing! SmartDiff is a small, focus
    ```
 3. **Run the test suite** and make sure it passes:
    ```bash
-   python tests/test_merger.py     # 27 cases, no SVN required
-   python tests/test_api_merge.py  # 15 cases, mock SVN
+   python tests/test_merger.py     # 29 cases, no SVN required
+   python tests/test_differ.py     # 11 cases, no SVN required
+   python tests/test_api_merge.py  # 16 cases, mock SVN
    ```
 4. **Add tests** for any new behavior. The test files use plain `assert` + `print` style — no pytest needed.
 5. **Open a PR** against `main`. CI will run the same two test scripts on Python 3.8 / 3.10 / 3.12.

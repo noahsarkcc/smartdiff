@@ -67,6 +67,7 @@ def _parse_xls(source, header_row: int = 1) -> dict:
             "rows": rows_data,
             "row_count": len(rows_data),
             "col_count": max_col,
+            "header_row": header_row,
         }
 
     return result
@@ -112,6 +113,7 @@ def _parse_xlsx(source, header_row: int = 1) -> dict:
                 "rows": rows_data,
                 "row_count": len(rows_data),
                 "col_count": max_col,
+                "header_row": header_row,
             }
     finally:
         wb.close()

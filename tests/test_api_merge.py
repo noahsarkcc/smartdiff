@@ -75,11 +75,13 @@ def with_workspace(fn):
             client = server.app.test_client()
             with patch.object(server, "_get_work_dir", return_value=workdir), \
                  patch.object(svn_helper, "is_available", return_value=True), \
-                 patch.object(svn_helper, "get_base_content", return_value=base_text), \
+                 patch.object(svn_helper, "get_base_content_raw",
+                              return_value=base_text.encode("utf-8")), \
                  patch.object(svn_helper, "get_svn_info",
                               return_value={"url": "https://svn.example/items"}), \
                  patch.object(svn_helper, "get_remote_head_revision", return_value=42), \
-                 patch.object(svn_helper, "get_file_at_revision", return_value=theirs_text):
+                 patch.object(svn_helper, "get_file_at_revision_raw",
+                              return_value=theirs_text.encode("utf-8")):
                 fn(client, workdir, fpath)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
@@ -281,6 +283,24 @@ def test_svn_modified_nested_xls_name_is_relative():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+@t("api/parse：路径穿越（.. / 绝对路径）被拒绝 → 400")
+def test_parse_path_traversal_rejected():
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    try:
+        outside_abs = os.path.abspath(os.path.join(workdir, "..", "outside.xml"))
+        client = server.app.test_client()
+        with patch.object(server, "_get_work_dir", return_value=workdir):
+            r1 = client.get("/api/parse?file=../escape.xml")
+            r2 = client.get(f"/api/parse?file={outside_abs}")
+            r3 = client.post("/api/merge/apply", json={
+                "file": "../escape.xml", "resolutions": []})
+        assert r1.status_code == 400, f"..穿越未被拒绝: {r1.status_code}"
+        assert r2.status_code == 400, f"绝对路径未被拒绝: {r2.status_code}"
+        assert r3.status_code in (400, 503), f"merge 穿越未被拒绝: {r3.status_code}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 @t("svn/update check_only：子目录文件按工作区相对路径匹配冲突")
 def test_svn_update_check_only_nested_conflict():
     workdir = tempfile.mkdtemp(prefix="xmldev_test_")
@@ -362,6 +382,7 @@ def main():
     section("4. SVN update 冲突检测")
     test_files_lists_nested_xls()
     test_svn_modified_nested_xls_name_is_relative()
+    test_parse_path_traversal_rejected()
     test_svn_update_check_only_nested_conflict()
 
     section("5. 幂等性")

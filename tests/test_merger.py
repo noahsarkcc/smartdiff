@@ -417,6 +417,91 @@ def test_write_preserves_default_ns_style():
     assert 'ss:Type="String"' in content, "属性应保留 ss: 前缀"
 
 
+def _make_book(rows, expanded_row_count):
+    """构造一个带 ss:ExpandedRowCount 的最小 SpreadsheetML 文件内容。
+    rows 是 [(id, name), ...]，首行固定为表头 ID/名称。"""
+    head = (
+        '<?xml version="1.0"?>\n'
+        '<?mso-application progid="Excel.Sheet"?>\n'
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" '
+        'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n'
+        '<Worksheet ss:Name="Items">\n'
+        f'<Table ss:ExpandedColumnCount="2" ss:ExpandedRowCount="{expanded_row_count}">\n'
+        '<Row><Cell><Data ss:Type="String">ID</Data></Cell>'
+        '<Cell><Data ss:Type="String">名称</Data></Cell></Row>\n'
+    )
+    body = ""
+    for rid, name in rows:
+        body += (f'<Row><Cell><Data ss:Type="String">{rid}</Data></Cell>'
+                 f'<Cell><Data ss:Type="String">{name}</Data></Cell></Row>\n')
+    tail = '</Table>\n</Worksheet>\n</Workbook>\n'
+    return head + body + tail
+
+
+def _write_tmp(name, content):
+    p = os.path.join(tempfile.gettempdir(), name)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(content)
+    return p
+
+
+@t("写回：接受远程新增行后 ss:ExpandedRowCount 同步增长且文件可解析")
+def test_write_updates_expanded_row_count():
+    import re as _re
+    bp = _write_tmp("_erc_base.xml", _make_book([("1001", "甲")], 2))
+    mp = _write_tmp("_erc_mine.xml", _make_book([("1001", "甲")], 2))
+    tp = _write_tmp("_erc_theirs.xml", _make_book([("1001", "甲"), ("1002", "乙")], 3))
+
+    base = xml_parser.parse_file(bp)
+    mine = xml_parser.parse_file(mp)
+    theirs = xml_parser.parse_file(tp)
+    result = xml_merger.three_way_diff(base, mine, theirs)
+
+    applied = xml_merger.apply_resolutions(result, [])
+    assert applied["ok"] is True, f"不应有冲突: {applied['unresolved']}"
+
+    out = os.path.join(tempfile.gettempdir(), "_erc_out.xml")
+    xml_merger.write_merged_xml(mp, result, out)
+
+    with open(out, "r", encoding="utf-8") as f:
+        content = f.read()
+    m = _re.search(r'ExpandedRowCount="(\d+)"', content)
+    assert m is not None, "输出缺少 ExpandedRowCount"
+    assert int(m.group(1)) >= 3, f"ExpandedRowCount 未增长到 >=3: {m.group(1)}"
+
+    parsed = xml_parser.parse_file(out)
+    ids = {r["cells"].get("A") for r in parsed["sheets"]["Items"]["rows"]}
+    assert "1002" in ids, "接受的远程新增行应写入文件"
+
+
+@t("写回：保留文档内部 XML 注释（不再被 ET 丢弃）")
+def test_write_preserves_comments():
+    xml = (
+        '<?xml version="1.0"?>\n'
+        '<?mso-application progid="Excel.Sheet"?>\n'
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" '
+        'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n'
+        '<!-- 重要：这是配置说明注释 -->\n'
+        '<Worksheet ss:Name="Items">\n'
+        '<Table ss:ExpandedColumnCount="2" ss:ExpandedRowCount="2">\n'
+        '<Row><Cell><Data ss:Type="String">ID</Data></Cell>'
+        '<Cell><Data ss:Type="String">名称</Data></Cell></Row>\n'
+        '<Row><Cell><Data ss:Type="String">1001</Data></Cell>'
+        '<Cell><Data ss:Type="String">甲</Data></Cell></Row>\n'
+        '</Table>\n</Worksheet>\n</Workbook>\n'
+    )
+    p = _write_tmp("_cmt.xml", xml)
+    base = xml_parser.parse_file(p)
+    result = xml_merger.three_way_diff(base, base, base)
+
+    out = os.path.join(tempfile.gettempdir(), "_cmt_out.xml")
+    xml_merger.write_merged_xml(p, result, out)
+
+    with open(out, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "这是配置说明注释" in content, f"内部注释丢失: {content}"
+
+
 # ── 6. 边界情况 ──────────────────────────────────────────
 
 
@@ -493,6 +578,8 @@ def main():
     test_write_merged_roundtrip()
     test_write_preserves_preamble()
     test_write_preserves_default_ns_style()
+    test_write_updates_expanded_row_count()
+    test_write_preserves_comments()
 
     section("6. 边界")
     test_no_changes()

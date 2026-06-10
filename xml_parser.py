@@ -138,7 +138,8 @@ def parse_workbook(source, header_row: int = 1) -> dict:
         if table is None:
             result["sheets"][sheet_name] = {
                 "headers": [], "header_comments": {},
-                "rows": [], "row_count": 0, "col_count": 0
+                "rows": [], "row_count": 0, "col_count": 0,
+                "header_row": header_row,
             }
             continue
 
@@ -198,6 +199,7 @@ def parse_workbook(source, header_row: int = 1) -> dict:
             "rows": rows_data,
             "row_count": len(rows_data),
             "col_count": max_col,
+            "header_row": header_row,
         }
 
     result["_parse_ms"] = round((time.perf_counter() - t0) * 1000, 1)
@@ -213,6 +215,10 @@ def parse_file(filepath: str, header_row: int = 1) -> dict:
     return data
 
 
-def parse_string(content: str, header_row: int = 1) -> dict:
-    """Parse XML content from a string (e.g. from svn cat)."""
+def parse_string(content, header_row: int = 1) -> dict:
+    """Parse XML content from a string or raw bytes (e.g. from svn cat).
+
+    Bytes are preferred: ElementTree then decodes per the XML declaration,
+    which keeps UTF-16 (and other non-UTF-8) files intact.
+    """
     return parse_workbook(content, header_row=header_row)

@@ -19,12 +19,19 @@ def _auto_detect_id_column(sheet: dict) -> Optional[str]:
 
     Strategy: first check columns whose header contains known ID substrings,
     then fall back to checking the first 3 columns for value uniqueness.
+    Rows at or above the configured header row (meta rows like obj/type/desc
+    plus the header itself) are excluded from the uniqueness check.
     """
     rows = sheet.get("rows", [])
     headers = sheet.get("headers", [])
+    header_row = sheet.get("header_row", 1)
     if len(rows) < 3:
         return None
-    data_rows = [r for r in rows[1:] if not _is_empty_row(r)]
+    # Mirror build_headers: if no row sits at the configured header row, the
+    # first row acts as the header instead.
+    if not any(r["_row"] == header_row for r in rows):
+        header_row = rows[0]["_row"]
+    data_rows = [r for r in rows if r["_row"] > header_row and not _is_empty_row(r)]
     if len(data_rows) < 2:
         return None
 

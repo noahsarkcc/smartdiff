@@ -150,7 +150,9 @@ def get_log(path: str, limit: int = 20) -> list:
 
     target_svn_path = ""
     if info and info.get("url") and info.get("root"):
-        target_svn_path = info["url"][len(info["root"]):]
+        # svn info returns percent-encoded URLs while log --xml <path> entries
+        # are decoded repo paths; decode so non-ASCII names still match.
+        target_svn_path = urllib.parse.unquote(info["url"][len(info["root"]):])
 
     try:
         root = ET.fromstring(out)
@@ -448,9 +450,36 @@ def get_remote_changed_files(path: str, extensions: tuple = (".xml", ".xlsx", ".
             fname = file_url[len(url):]
         else:
             fname = os.path.basename(file_url)
+        # svn outputs percent-encoded URLs; decode so names match the local
+        # working-copy paths reported by `svn status` (conflict detection).
+        fname = urllib.parse.unquote(fname)
         if fname and any(fname.lower().endswith(e) for e in extensions):
             files.append(fname)
     return files
+
+
+def get_conflicted_files(working_dir: str) -> list:
+    """List paths currently in conflicted state (text or tree conflicts)."""
+    rc, out, _err = _run("status", "--xml", working_dir, timeout=60)
+    if rc != 0:
+        return []
+    try:
+        root = ET.fromstring(out)
+    except ET.ParseError:
+        return []
+    result = []
+    for entry in root.iter("entry"):
+        wc = entry.find("wc-status")
+        if wc is None:
+            continue
+        if wc.get("item") == "conflicted" or wc.get("tree-conflicted") == "true":
+            result.append(entry.get("path", ""))
+    return result
+
+
+# Update output item lines look like "U    path" / "A    path" / "UU   path".
+# Excludes locale-independent noise such as "Updating '.':" / "At revision N.".
+_UPDATE_ITEM_RE = re.compile(r"^[ADUCGER][ ADUCGEB]?\s{2,}\S")
 
 
 def smart_update(path: str, skip_files: list, theirs_files: list, mine_files: list) -> dict:
@@ -463,12 +492,14 @@ def smart_update(path: str, skip_files: list, theirs_files: list, mine_files: li
     results = {"updated": 0, "skipped": [], "theirs": [], "mine": [], "errors": []}
 
     rc, out, err = _run("update", "--accept", "postpone", path, timeout=300)
-    if rc != 0 and "conflict" not in err.lower() and "conflicts" not in out.lower():
-        results["errors"].append(err)
+    if rc != 0 and not get_conflicted_files(path):
+        # Conflict state is checked via `status --xml` rather than sniffing
+        # localized output strings ("conflict" is not stable across locales).
+        results["errors"].append(err or out)
         return results
 
     update_lines = out.strip().splitlines() if out else []
-    results["updated"] = len([l for l in update_lines if l and l[0] in "ADUCG"])
+    results["updated"] = len([l for l in update_lines if _UPDATE_ITEM_RE.match(l)])
 
     for f in theirs_files:
         fpath = os.path.join(path, f)

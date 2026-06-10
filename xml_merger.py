@@ -10,7 +10,9 @@ Pipeline:
    to a copy of MINE's XML AST, preserving namespaces, declaration, processing
    instructions (`mso-application`), and untouched elements.
 """
+import os
 import re
+import tempfile
 import xml.etree.ElementTree as ET
 from typing import Optional
 
@@ -20,6 +22,9 @@ from xml_parser import (
     SS_NAME, SS_INDEX, SS_TYPE, SS_MERGE_ACROSS,
 )
 from xml_differ import _is_empty_row, _auto_detect_id_column
+
+SS_EXPANDED_ROW_COUNT = f'{{{NS["ss"]}}}ExpandedRowCount'
+SS_EXPANDED_COL_COUNT = f'{{{NS["ss"]}}}ExpandedColumnCount'
 
 
 CELL_UNCHANGED = "unchanged"
@@ -664,6 +669,65 @@ def _apply_sheet_ops(table_el, ops: dict):
             _build_row(table_el, current_max, ins["cells"])
 
 
+def _update_table_extent(table_el):
+    """Keep ss:ExpandedRowCount / ExpandedColumnCount >= the real content extent.
+
+    SpreadsheetML readers (Excel) refuse to open files whose actual row/column
+    count exceeds the declared expanded counts. After inserting rows or cells we
+    must grow these attributes. We only ever grow (never shrink) so SVN diffs
+    stay minimal and trailing blank space is preserved.
+    """
+    max_row = 0
+    max_col = 0
+    row_idx = 0
+    for row_el in table_el.findall(ROW_TAG):
+        idx_attr = row_el.get(SS_INDEX)
+        if idx_attr:
+            try:
+                row_idx = int(idx_attr)
+            except ValueError:
+                row_idx += 1
+        else:
+            row_idx += 1
+        if row_idx > max_row:
+            max_row = row_idx
+
+        col_idx = 0
+        for cell_el in row_el.findall(CELL_TAG):
+            c_attr = cell_el.get(SS_INDEX)
+            if c_attr:
+                try:
+                    col_idx = int(c_attr)
+                except ValueError:
+                    col_idx += 1
+            else:
+                col_idx += 1
+            if col_idx > max_col:
+                max_col = col_idx
+            merge = cell_el.get(SS_MERGE_ACROSS)
+            if merge:
+                try:
+                    col_idx += int(merge)
+                    if col_idx > max_col:
+                        max_col = col_idx
+                except ValueError:
+                    pass
+
+    rc = table_el.get(SS_EXPANDED_ROW_COUNT)
+    if rc is not None:
+        try:
+            table_el.set(SS_EXPANDED_ROW_COUNT, str(max(int(rc), max_row)))
+        except ValueError:
+            table_el.set(SS_EXPANDED_ROW_COUNT, str(max_row))
+
+    cc = table_el.get(SS_EXPANDED_COL_COUNT)
+    if cc is not None:
+        try:
+            table_el.set(SS_EXPANDED_COL_COUNT, str(max(int(cc), max_col)))
+        except ValueError:
+            table_el.set(SS_EXPANDED_COL_COUNT, str(max_col))
+
+
 _DEFAULT_NS_PATTERN = re.compile(
     r'<\w+\b[^>]*\bxmlns\s*=\s*"urn:schemas-microsoft-com:office:spreadsheet"',
     re.IGNORECASE,
@@ -712,7 +776,10 @@ def write_merged_xml(source_path: str, three_way_result: dict, output_path: str)
     use_default_ns = _detect_default_ns_style(source_path)
     bom, preamble = _read_preamble(source_path)
 
-    tree = ET.parse(source_path)
+    # Preserve XML comments inside the document body (TreeBuilder insert_comments
+    # requires Python 3.8+, which is our minimum). The default parser drops them.
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    tree = ET.parse(source_path, parser=parser)
     root = tree.getroot()
 
     sheets = three_way_result.get("sheets", {})
@@ -726,6 +793,7 @@ def write_merged_xml(source_path: str, three_way_result: dict, output_path: str)
             continue
         ops = _compute_sheet_operations(sheet_result)
         _apply_sheet_ops(table_el, ops)
+        _update_table_extent(table_el)
 
     body_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=False)
 
@@ -734,11 +802,24 @@ def write_merged_xml(source_path: str, three_way_result: dict, output_path: str)
         body_text = _strip_ss_element_prefix(body_text)
         body_bytes = body_text.encode("utf-8")
 
-    with open(output_path, "wb") as f:
-        if bom:
-            f.write(bom)
-        if preamble:
-            f.write(preamble.encode("utf-8"))
-        elif not body_bytes.startswith(b"<?xml"):
-            f.write(b'<?xml version="1.0"?>\n')
-        f.write(body_bytes)
+    # Atomic write: serialize to a temp file in the same directory, then replace
+    # the target in one os.replace() call. A crash mid-write can no longer leave
+    # the working copy truncated and lose the user's uncommitted edits.
+    out_dir = os.path.dirname(os.path.abspath(output_path)) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=out_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            if bom:
+                f.write(bom)
+            if preamble:
+                f.write(preamble.encode("utf-8"))
+            elif not body_bytes.startswith(b"<?xml"):
+                f.write(b'<?xml version="1.0"?>\n')
+            f.write(body_bytes)
+        os.replace(tmp_path, output_path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise

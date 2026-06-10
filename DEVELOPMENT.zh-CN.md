@@ -37,8 +37,9 @@ smartdiff/
 ├── static/              # 前端 SPA（index.html + css + js + img）
 ├── tests/
 │   ├── TESTING.md / TESTING.zh-CN.md   # 测试指南
-│   ├── test_merger.py                  # xml_merger 单元测试（27 用例）
-│   ├── test_api_merge.py               # HTTP API + mock SVN 端到端（15 用例）
+│   ├── test_merger.py                  # xml_merger 单元测试（29 用例）
+│   ├── test_differ.py                  # xml_differ 单元测试（11 用例）
+│   ├── test_api_merge.py               # HTTP API + mock SVN 端到端（16 用例）
 │   ├── setup_demo_svn.bat              # 一键搭建 SVN 演示仓库供手工 UI 测试
 │   └── data/                           # 三方测试数据：base.xml / mine.xml / theirs.xml
 ├── README.md / README.zh-CN.md
@@ -102,7 +103,7 @@ smartdiff/
 
 对比两个解析后的工作簿，产出结构化的变更信息。
 
-1. **自动 ID 列检测**（`_auto_detect_id_column`）：扫描表头中包含 `ID / 编号 / Key / 序号 / 索引` 的列，要求 ≥ 50% 非空且唯一；回退到前 3 列检查唯一性。对 old / new 两个 sheet 检测取一致结果。
+1. **自动 ID 列检测**（`_auto_detect_id_column`）：扫描表头中包含 `ID / 编号 / Key / 序号 / 索引` 的列，要求 ≥ 50% 非空且唯一；回退到前 3 列检查唯一性。对 old / new 两个 sheet 检测取一致结果。唯一性判断只看「表头起始行」（`header_row`，随解析结果携带）之后的数据行，obj/type/desc/key 等元信息行不参与。
 2. **有效列过滤**（`valid_cols`）：只比较有非空表头的列；没有表头的列视为注释数据。
 3. **三轮行匹配**（`_diff_sheet`）：
    - Pass 1：按 ID 列值匹配
@@ -137,19 +138,25 @@ smartdiff/
 - `removed_mine` / `removed_theirs` / `removed_both`：单方或双方删除
 - `mine_del_theirs_mod` / `mine_mod_theirs_del`：删除 vs 修改的强冲突
 
-**XML 写回保真**：原文件的 BOM、`<?xml ?>` 声明、`<?mso-application ?>` PI、注释、命名空间风格（默认 ns 或 `ss:` 前缀）都会保留。新增 Row / Cell 显式设置 `ss:Index` 避免破坏隐式编号；修改单元格时只重写 `<Data>` 文本节点，`<Cell>` 的样式属性（如 `ss:StyleID`）和内联注释保持不变。
+**XML 写回保真**：原文件的 BOM、`<?xml ?>` 声明、`<?mso-application ?>` PI、文档内部的 `<!-- -->` 注释（解析时启用 `insert_comments`）、命名空间风格（默认 ns 或 `ss:` 前缀）都会保留。新增 Row / Cell 显式设置 `ss:Index` 避免破坏隐式编号；修改单元格时只重写 `<Data>` 文本节点，`<Cell>` 的样式属性（如 `ss:StyleID`）和内联注释保持不变。
+
+**写回安全**：
+
+- **原子写入**：先写同目录临时文件，再 `os.replace()` 一次性替换目标文件。中途失败（磁盘满、进程被杀）不会留下半截文件，本地未提交修改不会丢失。
+- **行列数声明维护**（`_update_table_extent`）：若 `Table` 带 `ss:ExpandedRowCount` / `ss:ExpandedColumnCount`，写回前按实际内容范围增长（只增不减），避免 Excel 因实际行列数超出声明值而拒绝打开文件。
 
 ### `svn_helper.py` — SVN 集成
 
 封装 SVN CLI 调用，处理编码问题。
 
 - 自动检测 `svn` 路径（PATH 中的 svn、TortoiseSVN 路径）
-- `_decode_output`：依次尝试 UTF-8、GBK、UTF-8(replace) 解码
+- `_decode_output`：依次尝试 UTF-8、GBK、UTF-8(replace) 解码（仅用于命令行消息；文件内容统一走 raw 字节）
 - 所有操作都有超时保护
 - **远程 URL 策略**：`get_log` / `get_dir_log` / `get_file_at_revision` / `get_changed_files_between_revisions` 优先使用远程 URL（通过 `get_svn_info`），无需 `svn update` 即可看到最新版本历史
+- **URL 解码**：SVN 输出的 URL 对非 ASCII 文件名做百分号编码，`get_log` / `get_changed_files_between_revisions` / `get_remote_changed_files` 统一 `unquote` 后再与本地路径比较，保证中文文件名的冲突检测与历史过滤正确
 - **版本过滤**：`--stop-on-copy` 避免显示拷贝前的历史；`get_log` 额外按路径过滤；`get_changed_files_between_revisions` 跳过当前目录之外的文件
-- **二进制支持**：`_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` 返回原始字节流，用于 XLSX 等二进制格式的 SVN 版本获取
-- **`smart_update`** 支持三种冲突策略：`skip / theirs / mine`
+- **二进制支持**：`_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` 返回原始字节流。XML 文件内容也走 raw 路径，由 ElementTree 按 XML 声明自动解码（支持 UTF-16 等编码）
+- **`smart_update`** 支持三种冲突策略：`skip / theirs / mine`；冲突状态通过 `svn status --xml`（`get_conflicted_files`）判断，与 svn 输出语言无关
 
 ### `server.py` — Flask REST API
 
@@ -169,6 +176,8 @@ smartdiff/
 | POST | `/api/merge/preview` | 三方合并预览（仅 .xml） |
 | POST | `/api/merge/apply` | 应用合并决议并写回 |
 | POST | `/api/merge/svn-mark-resolved` | 调用 `svn resolve --accept working` |
+
+所有接收 `file` 参数的端点都经过 `_safe_workspace_path` 校验：路径 join 后取 `realpath`，必须落在当前工作区目录内，`..` 与绝对路径穿越一律返回 400。
 
 ### `static/` — 前端 SPA
 
@@ -241,12 +250,15 @@ pyinstaller --onefile --add-data "static;static" --name SmartDiff server.py
 
 ```powershell
 # 1) 合并引擎单元测试（无需 SVN）
-python tests\test_merger.py     # 27 用例
+python tests\test_merger.py     # 29 用例
 
-# 2) HTTP API 端到端（mock SVN）
-python tests\test_api_merge.py  # 15 用例
+# 2) Diff 引擎单元测试（无需 SVN）
+python tests\test_differ.py     # 11 用例
 
-# 3) 手工 UI 测试（需要 svn CLI）
+# 3) HTTP API 端到端（mock SVN）
+python tests\test_api_merge.py  # 16 用例
+
+# 4) 手工 UI 测试（需要 svn CLI）
 tests\setup_demo_svn.bat        # 在 %TEMP%\xmldev_demo_svn\ 搭一个三方对齐的演示仓库
 start.bat                       # 然后在头部添加 wc 目录作为工作区
 ```

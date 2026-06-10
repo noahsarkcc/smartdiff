@@ -4,6 +4,32 @@
 
 SmartDiff 的所有重要变更都记录在这里，格式大致遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/) 风格。
 
+## v1.3.7（2026-06-10）
+
+可靠性专项修复（来自全量代码评审，共 12 项）。
+
+**数据安全（高危）**
+- 语义合并写回改为原子操作：先写同目录临时文件再 `os.replace()` 替换，写入中途失败不再损坏工作副本、丢失未提交的本地修改
+- 合并新增行后自动维护 `ss:ExpandedRowCount` / `ss:ExpandedColumnCount`，避免 Excel 因行列数超出声明值而拒绝打开文件
+- 远程冲突检测与单文件版本历史对 SVN 百分号编码的 URL 统一解码，中文/非 ASCII 文件名不再漏判冲突或丢失历史记录
+
+**健壮性（中危）**
+- 所有接收文件名的 API 增加工作区路径前缀校验，拒绝 `..` 与绝对路径穿越
+- 启动时端口清理改为精确匹配本地地址端口列，不再误杀 55660-55669 等相邻端口的进程
+- SVN 智能更新改用 `svn status --xml` 判断冲突状态，不再依赖英文输出嗅探（中文 locale 下也正确）；更新文件计数排除 `Updating` / `At revision` 等非文件行
+- 合并写回保留文档内部的 `<!-- -->` XML 注释（此前被 ElementTree 静默丢弃）
+
+**其他改进（低危）**
+- SVN 文件内容统一走原始字节读取，由 XML 声明自动解码，支持 UTF-16 等非 UTF-8 编码的表格文件
+- ID 列自动检测尊重「表头起始行」设置，元信息行（obj/type/desc/key）不再干扰唯一性判断
+- 配置读写加锁防并发竞争；`config.json` 保存失败时在 API 响应中返回 `warning` 而非静默忽略
+- 打开工作区目录改用 `os.startfile`，移除模拟 Alt 按键的前台聚焦 hack
+
+**测试**
+- 新增 `tests/test_differ.py`（11 个用例）：插入/删除不级联、Pass 2/3 匹配、重复 ID、注释列过滤、header_row>1 的 ID 检测、UTF-16 解析；已接入 CI
+- `test_merger.py` 新增 ExpandedRowCount 增长与 XML 注释保留回归用例（29 个）
+- `test_api_merge.py` 新增路径穿越拒绝用例（16 个），全量 56 个用例通过
+
 ## v1.3.6（2026-06-09）
 
 **单元格 Diff 可读性**

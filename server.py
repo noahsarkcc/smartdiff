@@ -2,7 +2,7 @@
 Flask server for SmartDiff.
 Provides REST API for parsing, diffing, and SVN integration.
 """
-__version__ = "1.3.6"
+__version__ = "1.3.7"
 
 import os
 import sys
@@ -34,7 +34,7 @@ def _parse_file(filepath: str, header_row: int = 1) -> dict:
 
 
 def _parse_content(content, filename: str, header_row: int = 1) -> dict:
-    """Parse file content from SVN (str for XML, bytes for Excel binary)."""
+    """Parse file content from SVN (bytes preferred; str accepted for XML)."""
     if _is_excel_binary(filename):
         raw = content if isinstance(content, bytes) else content.encode("latin-1")
         return xlsx_parser.parse_bytes(raw, header_row=header_row)
@@ -42,17 +42,17 @@ def _parse_content(content, filename: str, header_row: int = 1) -> dict:
 
 
 def _get_base_content(filepath: str):
-    """Get SVN BASE content: raw bytes for Excel binary, decoded string for XML."""
-    if _is_excel_binary(filepath):
-        return svn_helper.get_base_content_raw(filepath)
-    return svn_helper.get_base_content(filepath)
+    """Get SVN BASE content as raw bytes.
+
+    XML also goes through the raw path so ElementTree can decode it per its
+    own XML declaration (UTF-8, UTF-16, ...) instead of a UTF-8/GBK guess.
+    """
+    return svn_helper.get_base_content_raw(filepath)
 
 
 def _get_file_at_revision(filepath: str, revision: int):
-    """Get file at SVN revision: raw bytes for Excel binary, decoded string for XML."""
-    if _is_excel_binary(filepath):
-        return svn_helper.get_file_at_revision_raw(filepath, revision)
-    return svn_helper.get_file_at_revision(filepath, revision)
+    """Get file content at an SVN revision as raw bytes (see _get_base_content)."""
+    return svn_helper.get_file_at_revision_raw(filepath, revision)
 
 def _base_dir():
     """Return the base directory — handles both normal and PyInstaller frozen mode."""
@@ -75,45 +75,51 @@ CONFIG_PATH = os.path.join(_base_dir(), "config.json")
 DEFAULT_WORK_DIR = os.path.join(_base_dir(), "workspace")
 
 _config = None
+_config_lock = threading.RLock()
 
 
 def _load_config() -> dict:
     global _config
-    if os.path.isfile(CONFIG_PATH):
+    with _config_lock:
+        if os.path.isfile(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                    _config = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                _config = None
+        if not _config or not isinstance(_config.get("workspaces"), list):
+            if os.path.isdir(DEFAULT_WORK_DIR):
+                _config = {
+                    "workspaces": [{"name": os.path.basename(DEFAULT_WORK_DIR), "path": DEFAULT_WORK_DIR}],
+                    "active_workspace": 0,
+                }
+            else:
+                _config = {
+                    "workspaces": [],
+                    "active_workspace": 0,
+                }
+        if _config["active_workspace"] >= len(_config["workspaces"]):
+            _config["active_workspace"] = 0
         try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                _config = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            _config = None
-    if not _config or not isinstance(_config.get("workspaces"), list):
-        if os.path.isdir(DEFAULT_WORK_DIR):
-            _config = {
-                "workspaces": [{"name": os.path.basename(DEFAULT_WORK_DIR), "path": DEFAULT_WORK_DIR}],
-                "active_workspace": 0,
-            }
-        else:
-            _config = {
-                "workspaces": [],
-                "active_workspace": 0,
-            }
-    if _config["active_workspace"] >= len(_config["workspaces"]):
-        _config["active_workspace"] = 0
-    try:
-        hr = int(_config.get("header_row", 1))
-        if hr < 1:
+            hr = int(_config.get("header_row", 1))
+            if hr < 1:
+                hr = 1
+        except (TypeError, ValueError):
             hr = 1
-    except (TypeError, ValueError):
-        hr = 1
-    _config["header_row"] = hr
-    return _config
+        _config["header_row"] = hr
+        return _config
 
 
 def _save_config():
-    try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(_config, f, ensure_ascii=False, indent=2)
-    except OSError:
-        pass
+    """Persist config. Returns an error message string on failure, else None."""
+    with _config_lock:
+        try:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(_config, f, ensure_ascii=False, indent=2)
+            return None
+        except OSError as e:
+            print(f"[WARN] Failed to save config: {e}", flush=True)
+            return str(e)
 
 
 def _get_work_dir() -> str:
@@ -127,6 +133,22 @@ def _get_work_dir() -> str:
 def _get_header_row() -> int:
     cfg = _load_config()
     return cfg.get("header_row", 1)
+
+
+def _safe_workspace_path(filename: str):
+    """Resolve a client-supplied relative filename inside the active workspace.
+
+    Returns the absolute path, or None if the workspace is unset or the path
+    escapes the workspace (e.g. via '..' or an absolute path).
+    """
+    wd = _get_work_dir()
+    if not wd or not filename:
+        return None
+    base = os.path.realpath(wd)
+    full = os.path.realpath(os.path.join(base, filename))
+    if full == base or full.startswith(base + os.sep):
+        return full
+    return None
 
 
 def _rel_to_workdir(path: str, work_dir: str) -> str:
@@ -195,8 +217,9 @@ def api_workspaces_switch():
     if idx is None or not isinstance(idx, int) or idx < 0 or idx >= len(cfg["workspaces"]):
         return jsonify({"error": "Invalid workspace index"}), 400
     cfg["active_workspace"] = idx
-    _save_config()
-    return jsonify({"ok": True, "work_dir": cfg["workspaces"][idx]["path"]})
+    save_err = _save_config()
+    return jsonify({"ok": True, "work_dir": cfg["workspaces"][idx]["path"],
+                    "warning": save_err})
 
 
 @app.route("/api/workspaces/add", methods=["POST"])
@@ -216,8 +239,9 @@ def api_workspaces_add():
     name = body.get("name", "") or os.path.basename(path)
     cfg["workspaces"].append({"name": name, "path": path})
     cfg["active_workspace"] = len(cfg["workspaces"]) - 1
-    _save_config()
-    return jsonify({"ok": True, "workspaces": cfg["workspaces"], "active_workspace": cfg["active_workspace"]})
+    save_err = _save_config()
+    return jsonify({"ok": True, "workspaces": cfg["workspaces"],
+                    "active_workspace": cfg["active_workspace"], "warning": save_err})
 
 
 @app.route("/api/workspaces/remove", methods=["POST"])
@@ -233,8 +257,9 @@ def api_workspaces_remove():
     cfg["workspaces"].pop(idx)
     if cfg["active_workspace"] >= len(cfg["workspaces"]):
         cfg["active_workspace"] = len(cfg["workspaces"]) - 1
-    _save_config()
-    return jsonify({"ok": True, "workspaces": cfg["workspaces"], "active_workspace": cfg["active_workspace"]})
+    save_err = _save_config()
+    return jsonify({"ok": True, "workspaces": cfg["workspaces"],
+                    "active_workspace": cfg["active_workspace"], "warning": save_err})
 
 
 @app.route("/api/pick-dir", methods=["POST"])
@@ -262,14 +287,10 @@ def api_open_dir():
     if not os.path.isdir(wd):
         return jsonify({"error": "Directory not found"}), 404
     try:
-        import subprocess as sp
         if os.name == "nt":
-            import ctypes
-            user32 = ctypes.windll.user32
-            user32.keybd_event(0x12, 0, 0, 0)   # Alt down
-            user32.keybd_event(0x12, 0, 2, 0)   # Alt up
-            sp.Popen(["explorer.exe", os.path.normpath(wd)])
+            os.startfile(os.path.normpath(wd))
         else:
+            import subprocess as sp
             sp.Popen(["xdg-open", wd])
         return jsonify({"ok": True})
     except Exception as e:
@@ -316,8 +337,9 @@ def api_settings():
         except (TypeError, ValueError):
             return jsonify({"error": "header_row must be an integer"}), 400
         cfg["header_row"] = hr
-    _save_config()
-    return jsonify({"ok": True, "header_row": cfg.get("header_row", 1)})
+    save_err = _save_config()
+    return jsonify({"ok": True, "header_row": cfg.get("header_row", 1),
+                    "warning": save_err})
 
 
 @app.route("/api/files")
@@ -348,7 +370,9 @@ def api_file_mtime():
     filename = request.args.get("file", "")
     if not filename:
         return jsonify({"error": "file parameter required"}), 400
-    fpath = os.path.join(_get_work_dir(), filename)
+    fpath = _safe_workspace_path(filename)
+    if fpath is None:
+        return jsonify({"error": "Invalid file path"}), 400
     if not os.path.exists(fpath):
         return jsonify({"mtime": 0})
     return jsonify({"mtime": os.path.getmtime(fpath)})
@@ -403,7 +427,9 @@ def api_svn_log():
     limit = int(request.args.get("limit", "20"))
     if not filename:
         return jsonify({"error": "file parameter required"}), 400
-    fpath = os.path.join(_get_work_dir(), filename)
+    fpath = _safe_workspace_path(filename)
+    if fpath is None:
+        return jsonify({"error": "Invalid file path"}), 400
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
     entries = svn_helper.get_log(fpath, limit=limit)
@@ -416,7 +442,9 @@ def api_parse():
     filename = request.args.get("file", "")
     if not filename:
         return jsonify({"error": "file parameter required"}), 400
-    fpath = os.path.join(_get_work_dir(), filename)
+    fpath = _safe_workspace_path(filename)
+    if fpath is None:
+        return jsonify({"error": "Invalid file path"}), 400
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
     try:
@@ -434,7 +462,9 @@ def api_diff_local():
     if not filename:
         return jsonify({"error": "file parameter required"}), 400
 
-    fpath = os.path.join(_get_work_dir(), filename)
+    fpath = _safe_workspace_path(filename)
+    if fpath is None:
+        return jsonify({"error": "Invalid file path"}), 400
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
 
@@ -475,7 +505,9 @@ def api_diff_revisions():
     if rev_old is None or rev_new is None:
         return jsonify({"error": "rev_old and rev_new required"}), 400
 
-    fpath = os.path.join(_get_work_dir(), filename)
+    fpath = _safe_workspace_path(filename)
+    if fpath is None:
+        return jsonify({"error": "Invalid file path"}), 400
 
     if not svn_helper.is_available():
         return jsonify({"error": "SVN not available"}), 503
@@ -685,11 +717,13 @@ def api_merge_preview():
     if _is_excel_binary(filename) or not filename.lower().endswith(".xml"):
         return jsonify({"error": "\u8bed\u4e49\u5408\u5e76\u4ec5\u652f\u6301 .xml (SpreadsheetML 2003)"}), 400
 
-    fpath = os.path.join(_get_work_dir(), filename)
+    fpath = _safe_workspace_path(filename)
+    if fpath is None:
+        return jsonify({"error": "Invalid file path"}), 400
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
 
-    base_content = svn_helper.get_base_content(fpath)
+    base_content = _get_base_content(fpath)
     if base_content is None:
         return jsonify({"error": "\u65e0\u6cd5\u83b7\u53d6 SVN BASE \u7248\u672c"}), 500
 
@@ -705,7 +739,7 @@ def api_merge_preview():
         except (TypeError, ValueError):
             return jsonify({"error": "Invalid theirs_rev"}), 400
 
-    theirs_content = svn_helper.get_file_at_revision(fpath, theirs_rev_int)
+    theirs_content = _get_file_at_revision(fpath, theirs_rev_int)
     if theirs_content is None:
         return jsonify({"error": f"\u65e0\u6cd5\u83b7\u53d6 r{theirs_rev_int} \u7248\u672c"}), 500
 
@@ -749,11 +783,13 @@ def api_merge_apply():
     if _is_excel_binary(filename) or not filename.lower().endswith(".xml"):
         return jsonify({"error": "\u8bed\u4e49\u5408\u5e76\u4ec5\u652f\u6301 .xml"}), 400
 
-    fpath = os.path.join(_get_work_dir(), filename)
+    fpath = _safe_workspace_path(filename)
+    if fpath is None:
+        return jsonify({"error": "Invalid file path"}), 400
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
 
-    base_content = svn_helper.get_base_content(fpath)
+    base_content = _get_base_content(fpath)
     if base_content is None:
         return jsonify({"error": "\u65e0\u6cd5\u83b7\u53d6 SVN BASE"}), 500
 
@@ -769,7 +805,7 @@ def api_merge_apply():
         except (TypeError, ValueError):
             return jsonify({"error": "Invalid theirs_rev"}), 400
 
-    theirs_content = svn_helper.get_file_at_revision(fpath, theirs_rev_int)
+    theirs_content = _get_file_at_revision(fpath, theirs_rev_int)
     if theirs_content is None:
         return jsonify({"error": f"\u65e0\u6cd5\u83b7\u53d6 r{theirs_rev_int}"}), 500
 
@@ -815,7 +851,9 @@ def api_merge_svn_mark_resolved():
     filename = body.get("file", "")
     if not filename:
         return jsonify({"error": "file parameter required"}), 400
-    fpath = os.path.join(_get_work_dir(), filename)
+    fpath = _safe_workspace_path(filename)
+    if fpath is None:
+        return jsonify({"error": "Invalid file path"}), 400
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
     rc, _out, err = svn_helper._run("resolve", "--accept", "working", fpath)
@@ -885,18 +923,27 @@ def open_browser(port):
 
 
 def kill_existing_on_port(port):
-    """Kill any existing processes listening on the given port."""
+    """Kill any existing process listening on exactly the given port.
+
+    Parses the netstat local-address column and matches the port exactly,
+    so e.g. port 55660 is never mistaken for 5566.
+    """
     try:
         import subprocess
         result = subprocess.run(
             ["netstat", "-ano"], capture_output=True, text=True, timeout=5)
         for line in result.stdout.splitlines():
-            if f":{port}" in line and "LISTENING" in line:
-                parts = line.split()
-                pid = parts[-1]
-                if pid.isdigit() and int(pid) != os.getpid():
-                    subprocess.run(["taskkill", "/PID", pid, "/F"],
-                                   capture_output=True, timeout=5)
+            parts = line.split()
+            # Expected: proto, local_addr, foreign_addr, state, pid
+            if len(parts) < 5 or parts[3].upper() != "LISTENING":
+                continue
+            local_addr = parts[1]
+            if not local_addr.endswith(f":{port}"):
+                continue
+            pid = parts[4]
+            if pid.isdigit() and int(pid) != os.getpid():
+                subprocess.run(["taskkill", "/PID", pid, "/F"],
+                               capture_output=True, timeout=5)
     except Exception:
         pass
 

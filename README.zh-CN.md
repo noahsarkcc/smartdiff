@@ -7,7 +7,7 @@
 [![Tests](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml/badge.svg)](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/noahsarkcc/smartdiff)](https://github.com/noahsarkcc/smartdiff/releases)
 
-> **v1.3.6** · 面向表格配置的语义化 Diff 与三方合并工具
+> **v1.3.7** · 面向表格配置的语义化 Diff 与三方合并工具
 
 SmartDiff 是一个零依赖、可本地运行的表格 Diff 工具，专为以 Excel 表格（`.xml` / `.xlsx` / `.xls`）维护的结构化配置数据而设计。它自动过滤样式、窗口状态、列宽等元数据噪音，**只呈现真正的数据变更**，并提供基于行 ID 的智能匹配、单元格级三方语义合并，以及可选的 SVN 版本集成。
 
@@ -145,13 +145,15 @@ python server.py
 
 ```powershell
 python tests\test_merger.py
+python tests\test_differ.py
 python tests\test_api_merge.py
 ```
 
 当前覆盖：
 
-- `test_merger.py`：27 个合并引擎用例，覆盖 5 种单元格状态、10 种行级状态、决议校验和 XML 写回 roundtrip
-- `test_api_merge.py`：15 个 API 用例，覆盖 preview / apply / svn-mark-resolved / 文件列表递归 / SVN update check_only 子目录冲突检测
+- `test_merger.py`：29 个合并引擎用例，覆盖 5 种单元格状态、10 种行级状态、决议校验、XML 写回 roundtrip、ExpandedRowCount 维护和注释保留
+- `test_differ.py`：11 个 diff 引擎用例，覆盖三遍行匹配（ID / 内容哈希 / 行号回退）、重复 ID、注释列过滤、header_row>1 的 ID 检测和 UTF-16 解析
+- `test_api_merge.py`：16 个 API 用例，覆盖 preview / apply / svn-mark-resolved / 文件列表递归 / 路径穿越拒绝 / SVN update check_only 子目录冲突检测
 
 完整的手工测试流程见 [tests/TESTING.zh-CN.md](tests/TESTING.zh-CN.md)。
 

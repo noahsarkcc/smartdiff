@@ -37,8 +37,9 @@ smartdiff/
 ├── static/              # Frontend SPA (index.html + css + js + img)
 ├── tests/
 │   ├── TESTING.md / TESTING.zh-CN.md   # Testing guides
-│   ├── test_merger.py                  # xml_merger unit tests (27 cases)
-│   ├── test_api_merge.py               # HTTP API + mock SVN end-to-end (15 cases)
+│   ├── test_merger.py                  # xml_merger unit tests (29 cases)
+│   ├── test_differ.py                  # xml_differ unit tests (11 cases)
+│   ├── test_api_merge.py               # HTTP API + mock SVN end-to-end (16 cases)
 │   ├── setup_demo_svn.bat              # Bootstrap a demo SVN repo for manual UI tests
 │   └── data/                           # Three-way fixtures: base.xml / mine.xml / theirs.xml
 ├── README.md / README.zh-CN.md
@@ -102,7 +103,7 @@ Both parsers expose the same output shape, so the rest of the pipeline doesn't c
 
 Compares two parsed workbooks and produces structured change information.
 
-1. **Auto ID-column detection** (`_auto_detect_id_column`): scans headers for `ID / 编号 / Key / 序号 / 索引` substrings, requires ≥ 50% non-empty unique values; falls back to scanning the first 3 columns. Both old and new sheets are detected to a consistent result.
+1. **Auto ID-column detection** (`_auto_detect_id_column`): scans headers for `ID / 编号 / Key / 序号 / 索引` substrings, requires ≥ 50% non-empty unique values; falls back to scanning the first 3 columns. Both old and new sheets are detected to a consistent result. Uniqueness is evaluated only on data rows below the configured header row (`header_row`, carried in the parse output), so metadata rows (obj/type/desc/key) never break detection.
 2. **Valid-column filtering** (`valid_cols`): only columns with non-empty headers participate in diff; header-less columns are treated as annotations.
 3. **Three-pass row matching** (`_diff_sheet`):
    - Pass 1: by ID column value
@@ -137,19 +138,25 @@ Cell-level + row-level three-way merge over SpreadsheetML 2003 (`.xml`) workbook
 - `removed_mine` / `removed_theirs` / `removed_both` — one-side or both-side deletion
 - `mine_del_theirs_mod` / `mine_mod_theirs_del` — delete-vs-edit hard conflict
 
-**XML write-back fidelity**: the original BOM / `<?xml ?>` / `<?mso-application ?>` PI / comments / namespace style (default ns vs `ss:` prefix) are all preserved. New rows / cells set `ss:Index` explicitly to avoid breaking implicit numbering, and only the `<Data>` text node is rewritten when updating a cell — `<Cell>` style attributes (`ss:StyleID`, etc.) and inline comments stay intact.
+**XML write-back fidelity**: the original BOM / `<?xml ?>` / `<?mso-application ?>` PI / in-document `<!-- -->` comments (parsed with `insert_comments`) / namespace style (default ns vs `ss:` prefix) are all preserved. New rows / cells set `ss:Index` explicitly to avoid breaking implicit numbering, and only the `<Data>` text node is rewritten when updating a cell — `<Cell>` style attributes (`ss:StyleID`, etc.) and inline comments stay intact.
+
+**Write-back safety**:
+
+- **Atomic write**: the result is serialized to a temp file in the same directory, then swapped in with a single `os.replace()`. A mid-write failure (disk full, killed process) can no longer leave a truncated file or lose uncommitted local edits.
+- **Table extent maintenance** (`_update_table_extent`): if the `Table` declares `ss:ExpandedRowCount` / `ss:ExpandedColumnCount`, they are grown (never shrunk) to cover the real content extent before writing, so Excel does not refuse to open the merged file.
 
 ### `svn_helper.py` — SVN integration
 
 Wraps the SVN CLI and handles encoding.
 
 - Auto-detects the `svn` binary (PATH lookup, TortoiseSVN install paths)
-- `_decode_output`: tries UTF-8, then GBK, then UTF-8 with `replace`
+- `_decode_output`: tries UTF-8, then GBK, then UTF-8 with `replace` (CLI messages only; file content always uses the raw byte path)
 - All operations have timeout protection
 - **Remote-URL strategy**: `get_log` / `get_dir_log` / `get_file_at_revision` / `get_changed_files_between_revisions` prefer the remote URL (via `get_svn_info`), so the latest revision history is visible without `svn update`
+- **URL decoding**: SVN percent-encodes non-ASCII file names in URLs; `get_log` / `get_changed_files_between_revisions` / `get_remote_changed_files` `unquote` them before comparing against local paths, so conflict detection and history filtering work for Chinese file names
 - **Revision filtering**: `--stop-on-copy` avoids the copy-source history; `get_log` additionally filters by path; `get_changed_files_between_revisions` skips files outside the current directory
-- **Binary support**: `_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` return raw bytes for SVN-side reads of XLSX and other binary formats
-- **`smart_update`** supports three conflict policies: `skip / theirs / mine`
+- **Binary support**: `_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` return raw bytes. XML content also goes through the raw path and is decoded by ElementTree per its XML declaration (UTF-16 etc. supported)
+- **`smart_update`** supports three conflict policies: `skip / theirs / mine`; conflict state is detected via `svn status --xml` (`get_conflicted_files`), independent of the svn output locale
 
 ### `server.py` — Flask REST API
 
@@ -169,6 +176,8 @@ Wraps the SVN CLI and handles encoding.
 | POST | `/api/merge/preview` | Three-way merge preview (`.xml` only) |
 | POST | `/api/merge/apply` | Apply resolutions and write back |
 | POST | `/api/merge/svn-mark-resolved` | Invoke `svn resolve --accept working` |
+
+Every endpoint accepting a `file` parameter goes through `_safe_workspace_path`: the joined path is resolved with `realpath` and must stay inside the active workspace — `..` and absolute-path traversal return 400.
 
 ### `static/` — frontend SPA
 
@@ -241,12 +250,15 @@ The resulting `dist/SmartDiff.exe` runs standalone, no Python required. `config.
 
 ```powershell
 # 1) Merge engine unit tests (no SVN required)
-python tests\test_merger.py     # 27 cases
+python tests\test_merger.py     # 29 cases
 
-# 2) HTTP API end-to-end (mock SVN)
-python tests\test_api_merge.py  # 15 cases
+# 2) Diff engine unit tests (no SVN required)
+python tests\test_differ.py     # 11 cases
 
-# 3) Manual UI testing (requires the svn CLI)
+# 3) HTTP API end-to-end (mock SVN)
+python tests\test_api_merge.py  # 16 cases
+
+# 4) Manual UI testing (requires the svn CLI)
 tests\setup_demo_svn.bat        # Creates a three-way aligned demo repo at %TEMP%\xmldev_demo_svn\
 start.bat                       # Then add the wc directory as a workspace from the header
 ```
