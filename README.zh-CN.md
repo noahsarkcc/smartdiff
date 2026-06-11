@@ -25,10 +25,16 @@ SmartDiff 是一个零依赖、可本地运行的表格 Diff 工具，专为以 
   <img src="assets/1.png" alt="SmartDiff 本地变更模式" width="900">
 </p>
 
+**版本总览** — GitHub 风格的 "Files changed"，一次查看两个版本间所有文件的变更；图中为分行视图（旧值在上、新值在下）。
+
+<p align="center">
+  <img src="assets/2.png" alt="SmartDiff 版本总览模式" width="900">
+</p>
+
 **语义合并** — 基于 `BASE / 本地 / 远程` 的单元格级 + 行级三方决议，结果写回原始 `.xml`。
 
 <p align="center">
-  <img src="assets/2.png" alt="SmartDiff 语义合并模式" width="900">
+  <img src="assets/3.png" alt="SmartDiff 语义合并模式" width="900">
 </p>
 
 ---
@@ -54,19 +60,23 @@ SmartDiff 是一个零依赖、可本地运行的表格 Diff 工具，专为以 
 | **三方合并** | `BASE / 本地 / 远程` 单元格级 + 行级自动合并（仅 `.xml`）。同一单元格双方改不同值、删除 vs 修改、双方加同 ID 不同内容可逐项手动决议后写回原 XML。 |
 | **SVN 集成** | 远程版本轮询（顶部横幅提醒）；智能更新分类处理冲突（保留我的 / 用最新 / 跳过 / 对 `.xml` 进入语义合并）；合并完成后自动 `svn resolve --accept working`。版本历史经远程 URL 获取，无需 `svn update`。 |
 | **格式与体验** | 可解析 `.xml`（SpreadsheetML 2003）、`.xlsx`（Office Open XML）和 `.xls`，统一 Diff 视图；可配置表头起始行，支持前几行是 obj/type/desc/key 等元信息的特殊表格；多 Sheet、多工作区、文件变更自动刷新、大表格分批渲染。 |
-| **自动更新** | 应用内检查更新（设置齿轮红点提示），exe 模式一键下载新版并自动替换重启；GitHub 不可达时自动走加速代理。 |
+| **自动更新** | 应用内检查更新（设置齿轮红点提示），exe 模式一键下载新版并自动替换重启。 |
 
 ---
 
 ## 安装 & 启动
 
-### 环境要求
+### 方式一：直接下载 exe（推荐）
 
-- Python 3.7+
+从 [Releases](https://github.com/noahsarkcc/smartdiff/releases) 下载最新的 `SmartDiff.exe`，双击即可运行，无需安装 Python。后续有新版本时可在应用内一键更新。
+
+### 方式二：源码运行
+
+环境要求：
+
+- Python 3.8+
 - Flask / openpyxl / xlrd（`pip install -r requirements.txt`）
 - SVN 命令行工具（可选，TortoiseSVN 的 svn.exe 也可以）
-
-### 快速启动
 
 ```bash
 # 安装依赖
@@ -90,11 +100,12 @@ python server.py
     {"name": "项目A", "path": "D:\\svn\\project_a\\xml"},
     {"name": "项目B", "path": "D:\\svn\\project_b\\xml"}
   ],
-  "active_workspace": 0
+  "active_workspace": 0,
+  "header_row": 1
 }
 ```
 
-在页面顶部的下拉框中可以切换工作区，点击 `+` 添加新工作区，点击 `×` 删除当前工作区。
+在页面顶部的下拉框中可以切换工作区，点击 `+` 添加新工作区，点击 `×` 删除当前工作区。`header_row` 为表头起始行，也可在界面设置中修改（见下文）。
 
 ---
 
@@ -103,6 +114,10 @@ python server.py
 ### 本地变更模式
 
 选择左侧文件，自动对比工作副本与 SVN BASE 版本。绿色行表示新增，红色行表示删除，黄色单元格表示修改（显示旧值 → 新值）。
+
+### 内联 / 分行视图
+
+修改单元格有两种显示方式：**内联**（旧值 → 新值同行展示）和**分行**（旧值在上、新值在下）。点击工具栏按钮即可切换，选择会被记住，适用于所有 Diff 视图。
 
 ### 版本对比模式
 
@@ -137,6 +152,17 @@ python server.py
   - **语义合并**：仅 `.xml` 文件显示，进入单元格级三方合并
 
 冲突检测按工作区相对路径匹配，子目录中的同名 XML 文件也会正确识别，例如 `configs/items.xml`。
+
+### 设置：表头起始行
+
+点击右上角齿轮打开设置。如果表格前几行是 obj/type/desc/key 等元信息，可将「表头起始行」设为实际列名所在行，ID 检测与列名展示都会按此处理。
+
+### 检查更新
+
+应用启动后会自动在后台检查新版本，发现新版本时设置齿轮上会出现红点。打开设置可查看当前版本并点击「检查更新」：
+
+- exe 模式下可一键下载新版本，完成后自动替换并重启
+- 源码模式下请使用 `git pull` 获取最新代码
 
 ---
 

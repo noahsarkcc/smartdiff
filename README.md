@@ -25,10 +25,16 @@ SmartDiff is a zero-dependency, locally-runnable diff tool for structured config
   <img src="assets/1.png" alt="SmartDiff local changes mode" width="900">
 </p>
 
+**Overview** — GitHub-style "Files changed" across two revisions, showing every changed file at once; pictured in split view (old value above, new value below).
+
+<p align="center">
+  <img src="assets/2.png" alt="SmartDiff overview mode" width="900">
+</p>
+
 **Semantic merge** — cell- and row-level three-way resolution over `BASE / MINE / THEIRS`, written back to the original `.xml`.
 
 <p align="center">
-  <img src="assets/2.png" alt="SmartDiff semantic merge mode" width="900">
+  <img src="assets/3.png" alt="SmartDiff semantic merge mode" width="900">
 </p>
 
 ---
@@ -54,19 +60,23 @@ SmartDiff is a zero-dependency, locally-runnable diff tool for structured config
 | **Three-way merge** | Cell-level + row-level auto merge over `BASE / MINE / THEIRS` (`.xml` only). Same-cell conflicts, delete-vs-edit, and same-ID-different-content additions can be resolved one by one and written back to the original XML. |
 | **SVN integration** | Polls the remote repository for new revisions (top banner reminder); smart update with conflict categorization (keep mine / take latest / skip / semantic merge for `.xml`); auto `svn resolve --accept working` after merge. Revision history via the remote URL — no `svn update` required. |
 | **Format & UX** | Parses `.xml` (SpreadsheetML 2003), `.xlsx` (Office Open XML), and `.xls` with a unified diff view. Configurable header row for tables with metadata rows (obj/type/desc/key) before the actual column headers. Multi-sheet, multi-workspace, auto-refresh on file change, batch rendering for large tables. |
-| **Auto-update** | In-app update check (red dot on the settings gear); one-click download, swap and restart in exe mode. Falls back to an acceleration proxy automatically when GitHub is unreachable. |
+| **Auto-update** | In-app update check (red dot on the settings gear); one-click download, swap and restart in exe mode. |
 
 ---
 
 ## Install & Run
 
-### Requirements
+### Option 1: Download the exe (recommended)
 
-- Python 3.7+
+Download the latest `SmartDiff.exe` from [Releases](https://github.com/noahsarkcc/smartdiff/releases) and double-click to run — no Python required. When a new version is released, you can update with one click from inside the app.
+
+### Option 2: Run from source
+
+Requirements:
+
+- Python 3.8+
 - Flask / openpyxl / xlrd (`pip install -r requirements.txt`)
 - SVN command-line tools (optional; TortoiseSVN's `svn.exe` works too)
-
-### Quick start
 
 ```bash
 # Install dependencies
@@ -90,11 +100,12 @@ The first launch generates `config.json`. Edit it manually or add workspaces fro
     {"name": "Project A", "path": "D:\\svn\\project_a\\xml"},
     {"name": "Project B", "path": "D:\\svn\\project_b\\xml"}
   ],
-  "active_workspace": 0
+  "active_workspace": 0,
+  "header_row": 1
 }
 ```
 
-Use the dropdown at the top of the page to switch workspaces, click `+` to add a new one, and `×` to remove the current one.
+Use the dropdown at the top of the page to switch workspaces, click `+` to add a new one, and `×` to remove the current one. `header_row` sets the header start row, which can also be changed from the in-app settings (see below).
 
 ---
 
@@ -103,6 +114,10 @@ Use the dropdown at the top of the page to switch workspaces, click `+` to add a
 ### Local changes mode
 
 Select a file on the left to auto-compare the working copy against the SVN BASE revision. Green rows are additions, red rows are deletions, yellow cells are modifications (showing old → new).
+
+### Inline / split view
+
+Modified cells can be displayed in two ways: **inline** (old → new on the same line) or **split** (old value above, new value below). Toggle via the toolbar button; the choice is remembered and applies to all diff views.
 
 ### Revision compare mode
 
@@ -137,6 +152,17 @@ When new revisions are detected on the remote, a yellow banner appears at the to
   - **Semantic merge** — `.xml` only; enters cell-level three-way merge
 
 Conflict detection matches by workspace-relative path, so same-named XML files in subdirectories (e.g. `configs/items.xml`) are identified correctly.
+
+### Settings: header start row
+
+Click the gear icon at the top right to open settings. If the first few rows of your tables are metadata (obj/type/desc/key), set **Header start row** to the row containing the actual column names — ID detection and column display will follow it.
+
+### Check for updates
+
+The app checks for new versions in the background after startup; a red dot appears on the settings gear when one is available. Open settings to see the current version and click **Check for updates**:
+
+- In exe mode, download the new version with one click — it is swapped in and restarted automatically
+- When running from source, use `git pull` to get the latest code
 
 ---
 
