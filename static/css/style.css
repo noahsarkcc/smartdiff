@@ -442,6 +442,9 @@ body {
 }
 .diff-table {
   min-width: 100%;
+  /* Size columns by content (capped by td max-width); wide tables scroll
+     horizontally instead of squeezing columns down to one char per line. */
+  width: max-content;
   border-collapse: collapse;
   font-size: 12px;
   table-layout: auto;
@@ -474,6 +477,7 @@ body {
   text-align: right;
   width: 30px;
   min-width: 30px;
+  white-space: nowrap;
 }
 
 /* Diff cell states */

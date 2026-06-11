@@ -11,6 +11,7 @@ Diff table display fixes.
 **Bug fixes**
 - Split view: the old-value (red) / new-value (green) backgrounds of modified cells now always fill the full cell height, so the red/green boundary no longer looks misaligned across cells with different content lengths
 - Long text in diff tables now wraps and shows in full by default, instead of requiring a mouse hover to expand
+- Table columns size to their content again (wrapping at the 300px cap): row numbers never wrap, and tables with many columns are no longer squeezed down to one character per line — wide tables scroll horizontally instead
 
 ## v1.4.0 (2026-06-10)
 
