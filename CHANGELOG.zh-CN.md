@@ -4,7 +4,7 @@
 
 SmartDiff 的所有重要变更都记录在这里，格式大致遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/) 风格。
 
-## Unreleased
+## v1.4.1（2026-06-11）
 
 Diff 表格显示修复。
 

@@ -4,7 +4,7 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## v1.4.1 (2026-06-11)
 
 Diff table display fixes.
 
