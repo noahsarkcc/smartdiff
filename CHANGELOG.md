@@ -4,6 +4,14 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+Diff table display fixes.
+
+**Bug fixes**
+- Split view: the old-value (red) / new-value (green) backgrounds of modified cells now always fill the full cell height, so the red/green boundary no longer looks misaligned across cells with different content lengths
+- Long text in diff tables now wraps and shows in full by default, instead of requiring a mouse hover to expand
+
 ## v1.4.0 (2026-06-10)
 
 In-app auto-update.

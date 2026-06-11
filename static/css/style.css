@@ -464,13 +464,8 @@ body {
   padding: 4px 8px;
   vertical-align: top;
   max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.diff-table td:hover {
   white-space: normal;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .diff-table tr:hover td { background: var(--bg-hover); }
 .diff-table .row-num {
@@ -507,9 +502,18 @@ body {
 /* Split diff view: old value on top, new value below */
 .diff-table td.cell-modified.split {
   padding: 0;
+  /* height hack: gives .split-wrap a definite height so 100% resolves to
+     the actual row height (the row still grows with its tallest cell) */
+  height: 1px;
+}
+.diff-table td.cell-modified.split .split-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 .diff-table td.cell-modified.split .cell-old,
 .diff-table td.cell-modified.split .cell-new {
+  flex: 1 0 auto;
   padding: 2px 6px;
   font-family: "Cascadia Code", "Consolas", monospace;
   overflow-wrap: anywhere;

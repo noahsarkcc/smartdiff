@@ -1369,7 +1369,7 @@ function _rowHtml(row, colLetters, headers) {
       if (ch) {
         if (state.diffView === "split") {
           const { oldHtml, newHtml } = inlineDiffSplit(ch.old, ch.new);
-          h += `<td class="cell-modified split" title="${col}${row._row}"><div class="cell-old">${oldHtml}</div><div class="cell-new">${newHtml}</div></td>`;
+          h += `<td class="cell-modified split" title="${col}${row._row}"><div class="split-wrap"><div class="cell-old">${oldHtml}</div><div class="cell-new">${newHtml}</div></div></td>`;
         } else {
           const diffHtml = inlineDiff(ch.old, ch.new);
           h += `<td class="cell-modified" title="${col}${row._row}"><div class="inline-diff">${diffHtml}</div></td>`;
