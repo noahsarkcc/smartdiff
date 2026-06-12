@@ -9,9 +9,8 @@ Usage:
   release page stays user-facing.
 - Versions between prev_tag (exclusive) and <tag> that never got their own
   release are summarized as one "Also includes vX.Y.Z: <intro line>" each.
-- Appends a "Full Changelog" compare link when prev_tag is given.
-- Falls back to a CHANGELOG link when the section is missing, so a release
-  is never published with an empty body.
+- Always ends with a "See CHANGELOG for details." link, so a release is
+  never published with an empty body.
 """
 import re
 import sys
@@ -98,10 +97,6 @@ def main():
     current = next((s for s in sections if s[0] == cur), None)
     if current:
         parts.append(f"{current[1]}\n\n{filter_technical(current[2])}")
-    else:
-        parts.append(
-            f"See [CHANGELOG.md](https://github.com/{REPO}/blob/main/CHANGELOG.md) "
-            f"for details.")
 
     if prev is not None:
         between = [s for s in sections if prev < s[0] < cur]
@@ -110,10 +105,9 @@ def main():
             summary = intro_line(body)
             parts.append(f"Also includes **{tag}**: {summary}" if summary
                          else f"Also includes **{tag}** (see CHANGELOG).")
-        prev_tag = "v" + ".".join(str(n) for n in prev)
-        cur_tag = "v" + ".".join(str(n) for n in cur)
-        parts.append(f"**Full Changelog**: "
-                     f"https://github.com/{REPO}/compare/{prev_tag}...{cur_tag}")
+
+    parts.append(f"See [CHANGELOG](https://github.com/{REPO}/blob/main/CHANGELOG.md) "
+                 f"for details.")
 
     sys.stdout.buffer.write(("\n\n".join(parts) + "\n").encode("utf-8"))
     return 0
