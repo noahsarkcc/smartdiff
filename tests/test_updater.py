@@ -9,7 +9,9 @@ updater 模块 + /api/update/* 端点测试
 import os
 import sys
 import json
+import time
 import tempfile
+import subprocess
 from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -285,6 +287,122 @@ def test_apply_update_source_mode():
     assert "git pull" in r["error"]
 
 
+# ── 4.5 更新脚本（自替换 bat）─────────────────────────────
+
+
+@t("apply_update：剔除 PyInstaller 引导器环境变量后再启动更新脚本")
+def test_apply_update_strips_pyi_env():
+    # 不剔除的话，bat 重启的新 exe 会继承 _PYI_*/_MEIPASS2，新引导器误认为
+    # 自己是已解压的子阶段，指向旧进程已删除的 _MEIxxxx 临时目录，启动即崩
+    # ——表现为"更新完成但程序没有重新拉起"。
+    _reset_updater()
+    workdir = tempfile.mkdtemp(prefix="xmldev_env_")
+    fake_exe = os.path.join(workdir, "SmartDiff.exe")
+    new = fake_exe + ".new"
+    with open(new, "wb") as f:
+        f.write(b"new")
+    updater._set_progress(status="ready", percent=100, path=new)
+
+    captured = {}
+
+    def fake_popen(*a, **kw):
+        captured.update(kw)
+        return object()
+
+    fake_env = {
+        "PATH": os.environ.get("PATH", ""),
+        "KEEP_ME": "1",
+        "_PYI_APPLICATION_HOME_DIR": r"C:\Temp\_MEI1",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
+        "_PYI_ARCHIVE_FILE": r"C:\Temp\SmartDiff.exe",
+        "_MEIPASS2": r"C:\Temp\_MEI1",
+    }
+
+    with patch.object(updater, "is_frozen", return_value=True), \
+         patch.object(updater.sys, "executable", fake_exe), \
+         patch.object(updater.subprocess, "Popen", side_effect=fake_popen), \
+         patch.dict(updater.os.environ, fake_env, clear=True):
+        r = updater.apply_update(exit_delay=9999)  # 大延时，_die 线程不会触发
+
+    assert r["ok"] is True, r
+    env = captured.get("env")
+    assert env is not None, "Popen 未传 env"
+    assert not any(k.startswith("_PYI_") for k in env), env
+    assert "_MEIPASS2" not in env
+    assert env.get("KEEP_ME") == "1"
+
+    bat = os.path.join(workdir, "smartdiff_update.bat")
+    assert os.path.isfile(bat), "更新脚本未写入 exe 目录"
+    os.remove(bat)
+    os.remove(new)
+    os.rmdir(workdir)
+    _reset_updater()
+
+
+@t("_UPDATE_BAT：不使用 timeout 命令（stdin 重定向下会立即失败）")
+def test_update_bat_template():
+    # timeout.exe 在 stdin 被重定向到 NUL 时直接报错退出，等待循环会瞬间空转完。
+    # 延时必须用 ping。
+    assert "timeout /t" not in updater._UPDATE_BAT
+    assert "ping -n 2" in updater._UPDATE_BAT
+    # 正常分支与放弃分支都要带工作目录重启
+    assert updater._UPDATE_BAT.count('start "" /d "{cwd}" "{exe}"') == 2
+
+
+@t("_UPDATE_BAT：旧 exe 被锁定时等待，释放后完成换包并自删（仅 Windows）")
+def test_update_bat_swap():
+    if os.name != "nt":
+        return  # 依赖 cmd/ping/文件锁语义，非 Windows 跳过
+    workdir = tempfile.mkdtemp(prefix="xmldev_bat_")
+    exe = os.path.join(workdir, "SmartDiff.exe")
+    new = exe + ".new"
+    with open(exe, "wb") as f:
+        f.write(b"old")
+    with open(new, "wb") as f:
+        f.write(b"new")
+    bat = os.path.join(workdir, "smartdiff_update.bat")
+    with open(bat, "w", encoding="gbk", errors="replace") as f:
+        f.write(updater._UPDATE_BAT.format(exe=exe, new=new, cwd=workdir,
+                                           tries_max=15))
+
+    # 与 apply_update 完全一致的启动方式——stdin 重定向正是当年 timeout
+    # 失效的触发条件，必须原样复现
+    DETACHED_PROCESS = 0x00000008
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    CREATE_NO_WINDOW = 0x08000000
+    lock = open(exe, "rb")  # 模拟仍在运行的旧 exe：句柄不关，del 必失败
+    try:
+        proc = subprocess.Popen(
+            ["cmd", "/c", bat],
+            cwd=workdir,
+            creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # 旧实现（timeout 失效）此时已空转完全部重试并放弃；
+        # 新实现应该还在 1 秒一次地等待
+        time.sleep(2.5)
+        lock.close()  # 模拟旧进程退出，释放文件锁
+        proc.wait(timeout=30)
+    finally:
+        if not lock.closed:
+            lock.close()
+
+    with open(exe, "rb") as f:
+        content = f.read()
+    assert content == b"new", f"exe 未被替换为新版本: {content!r}"
+    assert not os.path.isfile(new), ".new 文件未被消费"
+    for _ in range(10):  # bat 自删可能略有延迟
+        if not os.path.isfile(bat):
+            break
+        time.sleep(0.5)
+    assert not os.path.isfile(bat), "bat 未自删"
+    os.remove(exe)
+    os.rmdir(workdir)
+
+
 # ── 5. /api/update/* 端点 ────────────────────────────────
 
 
@@ -398,6 +516,11 @@ def main():
     test_download_worker()
     test_download_worker_error()
     test_apply_update_source_mode()
+
+    section("4.5 更新脚本（自替换 bat）")
+    test_apply_update_strips_pyi_env()
+    test_update_bat_template()
+    test_update_bat_swap()
 
     section("5. /api/update/* 端点")
     test_api_check()

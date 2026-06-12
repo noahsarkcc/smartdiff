@@ -4,6 +4,19 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## v1.4.2 (2026-06-12)
+
+Auto-update restart fix.
+
+**Bug fixes**
+- The app now restarts automatically after an in-app update; previously the new exe was installed but the program stayed closed and had to be reopened manually
+- GitHub release titles no longer repeat the version number; CI releases now get a "vX.Y.Z - summary" title taken from the changelog
+
+**Internal**
+- Root cause: the update helper script inherited PyInstaller bootloader environment variables (`_PYI_*` / `_MEIPASS2`) from the dying process, so the relaunched executable mistook itself for the extracted child stage, pointed at the deleted `_MEIxxxx` temp dir and crashed on startup; `apply_update` now strips these variables
+- The helper script waits with `ping` instead of `timeout` (which can exit immediately when stdin is redirected), and the give-up branch now also restarts with the correct working directory
+- 3 new updater tests: bootloader env stripping, script template guard, and a locked-file integration test of the swap script (Windows)
+
 ## v1.4.1 (2026-06-11)
 
 Diff table display fixes.

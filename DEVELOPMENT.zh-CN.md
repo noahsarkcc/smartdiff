@@ -45,7 +45,7 @@ smartdiff/
 │   ├── TESTING.md / TESTING.zh-CN.md   # 测试指南
 │   ├── test_merger.py                  # xml_merger 单元测试（29 用例）
 │   ├── test_differ.py                  # xml_differ 单元测试（11 用例）
-│   ├── test_updater.py                 # updater + /api/update/* 测试（20 用例）
+│   ├── test_updater.py                 # updater + /api/update/* 测试（23 用例）
 │   ├── test_api_merge.py               # HTTP API + mock SVN 端到端（16 用例）
 │   ├── setup_demo_svn.bat              # 一键搭建 SVN 演示仓库供手工 UI 测试
 │   └── data/                           # 三方测试数据：base.xml / mine.xml / theirs.xml
@@ -172,7 +172,7 @@ smartdiff/
 - **代理回退**（`_fetch`）：先直连（超时 8s），失败后用 `PROXY_PREFIX + url`（`github.2436666.xyz`）重试；本次会话记住可用通道（`_use_proxy`），后续请求与下载直接复用
 - **`check_update(current)`**：请求 GitHub `releases/latest`，版本号按 int 元组比较（`v1.3.7` → `(1,3,7)`，位数不齐补零）；从 assets 中找 `SmartDiff.exe` 资产，没有则 `asset_url=None`（前端退化为「打开发布页」）
 - **下载状态机**：模块级单例 `{status: idle|downloading|ready|error, percent, downloaded, total, error, path}`；`start_download` 启动后台线程流式写入 `SmartDiff.exe.new.part`，完成后 `os.replace` 改名 `.new`（沿用原子写思路）
-- **`apply_update()`**（仅 frozen）：在 exe 目录生成自删除的 `smartdiff_update.bat`（循环 `del` 等待旧 exe 解锁 → `move` 替换 → `start` 新 exe），以 `DETACHED_PROCESS` 启动后延迟 `os._exit(0)` 退出旧进程
+- **`apply_update()`**（仅 frozen）：在 exe 目录生成自删除的 `smartdiff_update.bat`（循环 `del` 等待旧 exe 解锁 → `move` 替换 → `start` 新 exe），以 `DETACHED_PROCESS` 启动后延迟 `os._exit(0)` 退出旧进程。处理了两个 Windows 坑：启动脚本前会剔除 PyInstaller 引导器环境变量（`_PYI_*` / `_MEIPASS2`），否则重启的新 exe 会误认为自己是已解压的子阶段而启动即崩；脚本等待用 `ping` 而非 `timeout`（后者在 stdin 重定向时可能立即退出）
 - **源码模式**：check 可用；download / apply 返回「请用 git pull」提示，不做任何文件操作
 - `config.json` 在 exe 同目录，替换 exe 不影响用户配置
 
@@ -289,7 +289,7 @@ python tests\test_merger.py     # 29 用例
 python tests\test_differ.py     # 11 用例
 
 # 3) 更新模块 + /api/update/* 测试（mock 网络）
-python tests\test_updater.py    # 20 用例
+python tests\test_updater.py    # 23 用例
 
 # 4) HTTP API 端到端（mock SVN）
 python tests\test_api_merge.py  # 16 用例

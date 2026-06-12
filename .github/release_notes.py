@@ -1,6 +1,8 @@
 """Generate the GitHub release body from CHANGELOG.md (English only).
 
-Usage: python .github/release_notes.py <tag> [prev_tag] > release_notes.md
+Usage:
+  python .github/release_notes.py <tag> [prev_tag] > release_notes.md
+  python .github/release_notes.py --title <tag>     # "vX.Y.Z - <summary>"
 
 - Extracts the "## vX.Y.Z" section of CHANGELOG.md for <tag> and drops
   technical subsections (bold titles matching the blacklist below), so the
@@ -72,13 +74,25 @@ def intro_line(body: str) -> str:
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("usage: release_notes.py <tag> [prev_tag]", file=sys.stderr)
+    args = sys.argv[1:]
+    title_mode = "--title" in args
+    if title_mode:
+        args.remove("--title")
+    if not args:
+        print("usage: release_notes.py [--title] <tag> [prev_tag]", file=sys.stderr)
         return 1
-    cur = parse_version(sys.argv[1])
-    prev = parse_version(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+    cur = parse_version(args[0])
+    prev = parse_version(args[1]) if len(args) > 1 and args[1] else None
 
     sections = load_sections()
+
+    if title_mode:
+        cur_tag = "v" + ".".join(str(n) for n in cur)
+        current = next((s for s in sections if s[0] == cur), None)
+        summary = intro_line(current[2]).rstrip(".").strip() if current else ""
+        title = f"{cur_tag} - {summary}" if summary else cur_tag
+        sys.stdout.buffer.write((title + "\n").encode("utf-8"))
+        return 0
     parts = []
 
     current = next((s for s in sections if s[0] == cur), None)

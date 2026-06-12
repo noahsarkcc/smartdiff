@@ -7,7 +7,7 @@
 [![Tests](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml/badge.svg)](https://github.com/noahsarkcc/smartdiff/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/noahsarkcc/smartdiff)](https://github.com/noahsarkcc/smartdiff/releases)
 
-> **v1.4.1** · Semantic diff and three-way merge for spreadsheet-based configuration data
+> **v1.4.2** · Semantic diff and three-way merge for spreadsheet-based configuration data
 
 SmartDiff is a zero-dependency, locally-runnable diff tool for structured configuration data maintained as Excel spreadsheets (`.xml` / `.xlsx` / `.xls`). It automatically filters out style, window-state, and column-width noise to show **only the real data changes**, with ID-based smart row matching, cell-level three-way semantic merge, and optional SVN integration.
 
@@ -181,7 +181,7 @@ Current coverage:
 
 - `test_merger.py`: 29 merge-engine cases covering 5 cell states, 10 row-level states, resolution validation, XML write-back roundtrip, ExpandedRowCount maintenance, and comment preservation
 - `test_differ.py`: 11 diff-engine cases covering three-pass row matching (ID / content hash / row-number fallback), duplicate IDs, comment-column filtering, ID detection with header_row > 1, and UTF-16 parsing
-- `test_updater.py`: 20 updater cases covering version comparison, proxy fallback, release parsing, the download state machine, and the `/api/update/*` endpoints
+- `test_updater.py`: 23 updater cases covering version comparison, proxy fallback, release parsing, the download state machine, the self-replace update script, and the `/api/update/*` endpoints
 - `test_api_merge.py`: 16 API cases covering preview / apply / svn-mark-resolved / recursive file listing / path-traversal rejection / SVN update `check_only` subdirectory conflict detection
 
 See [tests/TESTING.md](tests/TESTING.md) for the full manual test walkthrough.

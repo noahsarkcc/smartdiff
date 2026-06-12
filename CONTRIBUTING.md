@@ -15,7 +15,7 @@ Thanks for taking the time to consider contributing! SmartDiff is a small, focus
    ```bash
    python tests/test_merger.py     # 29 cases, no SVN required
    python tests/test_differ.py     # 11 cases, no SVN required
-   python tests/test_updater.py    # 20 cases, mocked network
+   python tests/test_updater.py    # 23 cases, mocked network
    python tests/test_api_merge.py  # 16 cases, mock SVN
    ```
 4. **Add tests** for any new behavior. The test files use plain `assert` + `print` style — no pytest needed.
@@ -60,7 +60,7 @@ Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml). Please inc
    ```bash
    python tests/test_merger.py     # 29 用例，无需 SVN
    python tests/test_differ.py     # 11 用例，无需 SVN
-   python tests/test_updater.py    # 20 用例，mock 网络
+   python tests/test_updater.py    # 23 用例，mock 网络
    python tests/test_api_merge.py  # 16 用例，mock SVN
    ```
 4. **新功能配新测试**。测试文件是纯 `assert` + `print` 风格，不依赖 pytest。

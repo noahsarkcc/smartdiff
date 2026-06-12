@@ -209,15 +209,18 @@ def start_download(asset_url: str, dest_dir: str = None) -> dict:
 
 _UPDATE_BAT = r"""@echo off
 rem SmartDiff self-update helper (auto-generated, self-deleting)
+rem NOTE: the 1s delay uses ping because timeout.exe exits immediately
+rem ("input redirection is not supported") when launched with stdin
+rem redirected to NUL, which is how apply_update() starts this script.
 set TRIES=0
 :wait
-timeout /t 1 /nobreak >nul
+ping -n 2 127.0.0.1 >nul
 del "{exe}" >nul 2>&1
 if not exist "{exe}" goto swap
 set /a TRIES+=1
 if %TRIES% LSS {tries_max} goto wait
 rem Give up: old exe still locked after {tries_max}s, just relaunch it.
-start "" "{exe}"
+start "" /d "{cwd}" "{exe}"
 goto done
 :swap
 move /y "{new}" "{exe}" >nul
@@ -246,12 +249,21 @@ def apply_update(exit_delay: float = 1.5) -> dict:
     with open(bat_path, "w", encoding="gbk", errors="replace") as f:
         f.write(script)
 
+    # Strip PyInstaller bootloader variables from the helper's environment.
+    # The bat (and the exe it relaunches) would otherwise inherit them, and
+    # the new bootloader would mistake itself for the already-extracted child
+    # stage, point at the dying process's _MEIxxxx temp dir and crash on
+    # startup -- the update would swap the exe but never restart it.
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("_PYI_") and k not in ("_MEIPASS2", "_MEIPASS")}
+
     DETACHED_PROCESS = 0x00000008
     CREATE_NEW_PROCESS_GROUP = 0x00000200
     CREATE_NO_WINDOW = 0x08000000
     subprocess.Popen(
         ["cmd", "/c", bat_path],
         cwd=exe_dir,
+        env=env,
         creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
         close_fds=True,
         stdin=subprocess.DEVNULL,

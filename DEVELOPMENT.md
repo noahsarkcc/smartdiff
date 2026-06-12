@@ -45,7 +45,7 @@ smartdiff/
 │   ├── TESTING.md / TESTING.zh-CN.md   # Testing guides
 │   ├── test_merger.py                  # xml_merger unit tests (29 cases)
 │   ├── test_differ.py                  # xml_differ unit tests (11 cases)
-│   ├── test_updater.py                 # updater + /api/update/* tests (20 cases)
+│   ├── test_updater.py                 # updater + /api/update/* tests (23 cases)
 │   ├── test_api_merge.py               # HTTP API + mock SVN end-to-end (16 cases)
 │   ├── setup_demo_svn.bat              # Bootstrap a demo SVN repo for manual UI tests
 │   └── data/                           # Three-way fixtures: base.xml / mine.xml / theirs.xml
@@ -172,7 +172,7 @@ Update check / download / self-replace, implemented with the standard library on
 - **Proxy fallback** (`_fetch`): try a direct connection first (8s timeout); on failure retry via `PROXY_PREFIX + url` (`github.2436666.xyz`). The working channel is remembered for the session (`_use_proxy`) and reused for subsequent requests and the download
 - **`check_update(current)`**: queries GitHub `releases/latest`; versions are compared as int tuples (`v1.3.7` → `(1,3,7)`, zero-padded to equal length); the `SmartDiff.exe` asset is looked up in the release assets, `asset_url=None` when missing (the UI degrades to "Open Release Page")
 - **Download state machine**: a module-level singleton `{status: idle|downloading|ready|error, percent, downloaded, total, error, path}`; `start_download` spawns a background thread that streams into `SmartDiff.exe.new.part` and `os.replace`s it to `.new` on completion (same atomic-write idea as the merge write-back)
-- **`apply_update()`** (frozen only): writes a self-deleting `smartdiff_update.bat` next to the exe (loops `del` until the old exe is unlocked → `move` the new one in → `start` it), launches it with `DETACHED_PROCESS` and exits the old process via a delayed `os._exit(0)`
+- **`apply_update()`** (frozen only): writes a self-deleting `smartdiff_update.bat` next to the exe (loops `del` until the old exe is unlocked → `move` the new one in → `start` it), launches it with `DETACHED_PROCESS` and exits the old process via a delayed `os._exit(0)`. Two Windows pitfalls are handled: the helper's environment is stripped of PyInstaller bootloader variables (`_PYI_*` / `_MEIPASS2`), otherwise the relaunched exe mistakes itself for the extracted child stage and crashes on startup; and the script waits with `ping` rather than `timeout`, which can exit immediately when stdin is redirected
 - **Source mode**: check works; download/apply return a "use git pull" message and touch nothing
 - `config.json` lives next to the exe, so swapping the executable never affects user config
 
@@ -289,7 +289,7 @@ python tests\test_merger.py     # 29 cases
 python tests\test_differ.py     # 11 cases
 
 # 3) Updater + /api/update/* tests (mocked network)
-python tests\test_updater.py    # 20 cases
+python tests\test_updater.py    # 23 cases
 
 # 4) HTTP API end-to-end (mock SVN)
 python tests\test_api_merge.py  # 16 cases
