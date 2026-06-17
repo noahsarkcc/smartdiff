@@ -26,6 +26,7 @@ SVN 冲突合并流程重做 + 系统托盘运行。
 - 修复托盘模式下 svn / netstat / taskkill 子进程不停闪黑窗口：`svn_helper._run` / `_run_raw` / `_find_svn` 探测、以及 `server.kill_existing_on_port` 全部加上 `subprocess.CREATE_NO_WINDOW`（仅 Windows）
 - 修复对 SVN 冲突状态文件做语义合并时 `xml_merger.write_merged_xml` 直接 `ParseError`：原先把已被 `<<<<<<<` 标记污染的工作副本当模板解析，现在 `_resolve_merge_sources` 额外返回 `template_path`，冲突分支用 `.mine` 旁路文件（合法 XML 本地版本）作为模板，合并结果仍写回工作副本路径
 - 修复日志被 `[SVN] Using: svn` 刷屏：原先 `is_available()` 每次被调用（前端轮询 / 各 API 入口共 15 处）都打印一次，现在用 `_svn_announced` 标志只在首次探测成功时打印一次
+- 修复语义合并 apply 后弹窗显示「0 项决议」让人误以为没合并：原先弹窗的数字是「用户在界面上点过的 resolutions 条数」，不包含 `three_way_diff` 自动决议的非冲突合并（如 THEIRS 单方新增 / 单方修改）。后端 `/api/merge/apply` 新增 `total_changes` 字段统计真正写入文件的行级 ops 总数，前端弹窗改用这个数字；文案同步从「决议」改为「变更」
 
 ## v1.4.2（2026-06-12）
 

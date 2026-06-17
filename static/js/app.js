@@ -1938,7 +1938,8 @@ async function applyMerge() {
       return;
     }
 
-    const msg = t('merge.applySuccess', result.applied) + (result.svn_resolved ? t('merge.svnResolved') : "");
+    const changeCount = (typeof result.total_changes === 'number') ? result.total_changes : result.applied;
+    const msg = t('merge.applySuccess', changeCount) + (result.svn_resolved ? t('merge.svnResolved') : "");
     state.mergeFromSvnConflict = false;
     alert(msg);
     setMode("local");

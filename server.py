@@ -944,6 +944,19 @@ def api_merge_apply():
                 "unresolved": applied["unresolved"],
             }), 400
 
+        # Count what is actually being written to disk: that includes both
+        # user-supplied resolutions and auto-merged decisions (e.g. THEIRS
+        # added/modified rows that the user never had to click on). Without
+        # this count the UI would say "0 resolutions applied" whenever every
+        # change was auto-mergeable, even though the file was correctly
+        # merged on disk.
+        total_changes = 0
+        for sheet_result in result.get("sheets", {}).values():
+            ops = xml_merger._compute_sheet_operations(sheet_result)
+            total_changes += (len(ops["update_rows"])
+                              + len(ops["insert_rows"])
+                              + len(ops["remove_rows"]))
+
         xml_merger.write_merged_xml(sources["template_path"], result, fpath)
     except Exception as e:
         import traceback
@@ -961,6 +974,7 @@ def api_merge_apply():
         "ok": True,
         "file": filename,
         "applied": applied["applied"],
+        "total_changes": total_changes,
         "svn_resolved": svn_resolved,
         "from_svn_conflict": sources["is_conflict"],
     })

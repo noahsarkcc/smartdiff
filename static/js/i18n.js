@@ -62,7 +62,7 @@ const I18N_MESSAGES = {
 
     'merge.xmlOnly': '语义合并仅支持 .xml (SpreadsheetML 2003) 文件',
     'merge.unresolvedAlert': '还有未解决的冲突，请先全部决议',
-    'merge.applySuccess': '合并完成，已写回 {0} 项决议',
+    'merge.applySuccess': '合并完成，已写回 {0} 项变更',
     'merge.svnResolved': '；SVN 冲突已标记为已解决',
     'merge.applyFailed': '应用合并失败: {0}',
     'merge.customPrompt': '输入自定义值 ({0}{1}):',
@@ -334,7 +334,7 @@ const I18N_MESSAGES = {
 
     'merge.xmlOnly': 'Semantic merge only supports .xml (SpreadsheetML 2003) files',
     'merge.unresolvedAlert': 'There are unresolved conflicts. Please resolve all first.',
-    'merge.applySuccess': 'Merge complete, {0} resolution(s) applied',
+    'merge.applySuccess': 'Merge complete, {0} change(s) written',
     'merge.svnResolved': '; SVN conflict marked resolved',
     'merge.applyFailed': 'Failed to apply merge: {0}',
     'merge.customPrompt': 'Enter custom value ({0}{1}):',

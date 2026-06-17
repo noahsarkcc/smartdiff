@@ -193,6 +193,34 @@ def test_apply_full(client, workdir, fpath):
     assert by_id["2004"]["D"] == "本地说"
 
 
+@t("apply：total_changes 包含自动合并，不仅是用户决议数")
+@with_workspace
+def test_apply_total_changes_includes_auto_merge(client, workdir, fpath):
+    """用户只手动决议冲突单元，自动合并的行（theirs 单方新增/修改）也要被计入 total_changes。
+
+    base/mine/theirs 测试数据里 1003.C 是 THEIRS 单方修改、1005 行 THEIRS 单方修改、
+    1009 行 THEIRS 单方新增、2004 行 BOTH-DIFF（用户必须决议）等等。
+    """
+    resolutions = [
+        {"sheet": "Items", "row_key": "1006", "col": "B", "choice": "theirs"},
+        {"sheet": "Items", "row_key": "1010", "choice": "accept_theirs"},
+        {"sheet": "Items", "row_key": "1011", "choice": "accept_theirs_delete"},
+        {"sheet": "Items", "row_key": "2004", "choice": "accept_theirs"},
+    ]
+    r = client.post("/api/merge/apply", json={
+        "file": "items.xml",
+        "resolutions": resolutions,
+    })
+    assert r.status_code == 200, f"body={r.get_data(as_text=True)}"
+    body = r.get_json()
+    # 用户传了 4 条决议
+    assert body["applied"] == 4
+    # 自动合并的行（1003 单方修改、1005 单方修改、1009 单方新增 等）也要计入；
+    # 所以 total_changes 必须 > applied
+    assert body["total_changes"] > body["applied"], \
+        f"total_changes={body['total_changes']} 应大于 applied={body['applied']}"
+
+
 @t("apply：mark_resolved=true 时尝试 svn resolve（mocked）")
 @with_workspace
 def test_apply_mark_resolved(client, workdir, fpath):
@@ -439,6 +467,7 @@ def main():
     section("2. /api/merge/apply")
     test_apply_unresolved()
     test_apply_full()
+    test_apply_total_changes_includes_auto_merge()
     test_apply_mark_resolved()
     test_apply_rejects_xlsx()
     test_apply_in_svn_conflict_uses_mine_template()

@@ -26,6 +26,7 @@ Rebuilt SVN conflict merge flow + system tray.
 - Fixed constant flashing of console windows from svn / netstat / taskkill subprocesses in tray mode: `svn_helper._run` / `_run_raw` / `_find_svn` probing and `server.kill_existing_on_port` now all pass `subprocess.CREATE_NO_WINDOW` (Windows only)
 - Fixed `xml_merger.write_merged_xml` raising `ParseError` when semantic-merging an SVN-conflicted file: the working copy already contains `<<<<<<<` markers and cannot be parsed as XML. `_resolve_merge_sources` now also returns a `template_path` — the `.mine` sidecar (the clean local-side XML) in the conflict branch and the working-copy path otherwise — and the merge result is still written back to the working-copy path
 - Stopped spamming `[SVN] Using: svn` in the log: `is_available()` used to print on every call (frontend polling + 15 API entry points), now an `_svn_announced` flag prints it only once on first successful detection
+- Fixed the apply-merge popup misleadingly reporting "0 resolutions applied" when the on-disk merge succeeded: the count used to be "the user-supplied resolutions", excluding the auto-decided non-conflict merges (THEIRS-only adds, THEIRS-only modifications, etc.) that `three_way_diff` resolves automatically. `/api/merge/apply` now returns a `total_changes` field that counts the actual row-level ops written to disk and the popup uses that; copy reworded from "resolutions" to "changes"
 
 ## v1.4.2 (2026-06-12)
 
