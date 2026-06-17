@@ -107,6 +107,11 @@ def _resolve_merge_sources(fpath: str, theirs_rev_hint="HEAD") -> dict:
             "mine_label": "\u5de5\u4f5c\u526f\u672c",
             "theirs_label": f"r{conflict['theirs_rev']}" if conflict.get("theirs_rev") else "HEAD",
             "theirs_revision": conflict.get("theirs_rev"),
+            # The working copy itself contains "<<<<<<<" markers and cannot be
+            # parsed as XML; use the .mine sidecar (the pre-update local copy)
+            # as the template for write_merged_xml. The merge result will
+            # still be written back to the working-copy path.
+            "template_path": conflict["mine_file"],
         }
 
     base = _get_base_content(fpath)
@@ -141,6 +146,7 @@ def _resolve_merge_sources(fpath: str, theirs_rev_hint="HEAD") -> dict:
         "mine_label": "\u5de5\u4f5c\u526f\u672c",
         "theirs_label": f"r{theirs_rev_int}",
         "theirs_revision": theirs_rev_int,
+        "template_path": fpath,
     }
 
 def _base_dir():
@@ -938,7 +944,7 @@ def api_merge_apply():
                 "unresolved": applied["unresolved"],
             }), 400
 
-        xml_merger.write_merged_xml(fpath, result, fpath)
+        xml_merger.write_merged_xml(sources["template_path"], result, fpath)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1065,8 +1071,13 @@ def kill_existing_on_port(port):
     """
     try:
         import subprocess
+        # In tray (pythonw) mode, child processes would otherwise pop a
+        # short-lived console window.
+        no_window = 0x08000000 if os.name == "nt" else 0
+        hide = {"creationflags": no_window} if no_window else {}
         result = subprocess.run(
-            ["netstat", "-ano"], capture_output=True, text=True, timeout=5)
+            ["netstat", "-ano"], capture_output=True, text=True, timeout=5,
+            **hide)
         for line in result.stdout.splitlines():
             parts = line.split()
             # Expected: proto, local_addr, foreign_addr, state, pid
@@ -1078,7 +1089,7 @@ def kill_existing_on_port(port):
             pid = parts[4]
             if pid.isdigit() and int(pid) != os.getpid():
                 subprocess.run(["taskkill", "/PID", pid, "/F"],
-                               capture_output=True, timeout=5)
+                               capture_output=True, timeout=5, **hide)
     except Exception:
         pass
 

@@ -222,6 +222,73 @@ def test_apply_rejects_xlsx(client, workdir, fpath):
     assert r.status_code == 400
 
 
+@t("apply：冲突状态下用 .mine 旁路文件作模板，污染的工作副本仍能写回")
+def test_apply_in_svn_conflict_uses_mine_template():
+    """模拟 svn update 后产生 text conflict 的真实场景：
+
+    工作副本里的 items.xml 已经被 SVN 写入 <<<<<<< 标记不是合法 XML，
+    旁边有 items.xml.mine（合法本地版）/ items.xml.r1（BASE）/ items.xml.r2（THEIRS）。
+    /api/merge/apply 必须用 .mine 当模板而不是被污染的工作副本，
+    否则 ET.parse 会直接挂掉。
+    """
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    try:
+        # 工作副本：完全是非法 XML（典型的冲突标记内容）
+        fpath = os.path.join(workdir, "items.xml")
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write("<<<<<<< .mine\n??? not well-formed ???\n=======\nstill broken\n>>>>>>> .r42\n")
+
+        # 旁路文件：复用现成测试数据
+        mine_sidecar = os.path.join(workdir, "items.xml.mine")
+        base_sidecar = os.path.join(workdir, "items.xml.r1")
+        theirs_sidecar = os.path.join(workdir, "items.xml.r2")
+        shutil.copy(MINE_PATH, mine_sidecar)
+        shutil.copy(BASE_PATH, base_sidecar)
+        shutil.copy(THEIRS_PATH, theirs_sidecar)
+
+        client = server.app.test_client()
+        conflict_info = {
+            "is_text_conflict": True,
+            "base_file": base_sidecar,
+            "mine_file": mine_sidecar,
+            "theirs_file": theirs_sidecar,
+            "base_rev": 1,
+            "theirs_rev": 2,
+        }
+        resolutions = [
+            {"sheet": "Items", "row_key": "1006", "col": "B", "choice": "theirs"},
+            {"sheet": "Items", "row_key": "1010", "choice": "accept_theirs"},
+            {"sheet": "Items", "row_key": "1011", "choice": "accept_theirs_delete"},
+            {"sheet": "Items", "row_key": "2004", "choice": "accept_theirs"},
+        ]
+        with patch.object(server, "_get_work_dir", return_value=workdir), \
+             patch.object(svn_helper, "is_available", return_value=True), \
+             patch.object(svn_helper, "get_conflict_info",
+                          return_value=conflict_info), \
+             patch.object(svn_helper, "_run", return_value=(0, "Resolved", "")):
+            r = client.post("/api/merge/apply", json={
+                "file": "items.xml",
+                "resolutions": resolutions,
+            })
+        assert r.status_code == 200, f"body={r.get_data(as_text=True)}"
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["from_svn_conflict"] is True
+        # 冲突状态下即使前端没传 mark_resolved，也应该自动 svn resolve --accept working
+        assert body["svn_resolved"] is True
+
+        # 关键验收：写回工作副本不再是冲突标记，并且能被重新解析为合法 XML
+        with open(fpath, "rb") as f:
+            written = f.read()
+        assert b"<<<<<<<" not in written and b">>>>>>>" not in written, \
+            "工作副本仍包含冲突标记，写回失败"
+        # 解析回 Items sheet 验证合并结果
+        parsed = xml_parser.parse_file(fpath)
+        assert "Items" in parsed["sheets"]
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 # ── 3. /api/merge/svn-mark-resolved ──────────────────────
 
 
@@ -374,6 +441,7 @@ def main():
     test_apply_full()
     test_apply_mark_resolved()
     test_apply_rejects_xlsx()
+    test_apply_in_svn_conflict_uses_mine_template()
 
     section("3. /api/merge/svn-mark-resolved")
     test_svn_mark_resolved_ok()

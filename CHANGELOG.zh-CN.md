@@ -23,6 +23,8 @@ SVN 冲突合并流程重做 + 系统托盘运行。
 - 后端新增 `/api/svn/conflicted` 接口；`/api/svn/update` 接受 `semantic_files` 参数
 - 前端新增 `state.updateContext` 队列、`_processNextSemantic` / `_finishSemanticQueue` / `cancelSemanticQueue` 等
 - 修复托盘模式下 Flask 启动横幅崩溃：`_StreamToLogger.write` 现在兼容 bytes / bytearray，并暴露 `encoding` / `isatty` / `fileno` / `writelines`，避免 `click.echo` 走 bytes 路径时把后台 Flask 线程整个打挂（用户看不到错误，但端口起不来）
+- 修复托盘模式下 svn / netstat / taskkill 子进程不停闪黑窗口：`svn_helper._run` / `_run_raw` / `_find_svn` 探测、以及 `server.kill_existing_on_port` 全部加上 `subprocess.CREATE_NO_WINDOW`（仅 Windows）
+- 修复对 SVN 冲突状态文件做语义合并时 `xml_merger.write_merged_xml` 直接 `ParseError`：原先把已被 `<<<<<<<` 标记污染的工作副本当模板解析，现在 `_resolve_merge_sources` 额外返回 `template_path`，冲突分支用 `.mine` 旁路文件（合法 XML 本地版本）作为模板，合并结果仍写回工作副本路径
 
 ## v1.4.2（2026-06-12）
 

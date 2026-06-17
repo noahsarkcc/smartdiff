@@ -23,6 +23,8 @@ Rebuilt SVN conflict merge flow + system tray.
 - New `/api/svn/conflicted` endpoint; `/api/svn/update` accepts a `semantic_files` parameter
 - New frontend `state.updateContext` queue with `_processNextSemantic` / `_finishSemanticQueue` / `cancelSemanticQueue`
 - Fixed tray-mode Flask startup crash: `_StreamToLogger.write` now accepts bytes / bytearray and exposes `encoding` / `isatty` / `fileno` / `writelines`, so `click.echo` no longer hits a `TypeError` when writing the Flask startup banner (which otherwise killed the background Flask thread silently — the tray icon stayed up but the port never opened)
+- Fixed constant flashing of console windows from svn / netstat / taskkill subprocesses in tray mode: `svn_helper._run` / `_run_raw` / `_find_svn` probing and `server.kill_existing_on_port` now all pass `subprocess.CREATE_NO_WINDOW` (Windows only)
+- Fixed `xml_merger.write_merged_xml` raising `ParseError` when semantic-merging an SVN-conflicted file: the working copy already contains `<<<<<<<` markers and cannot be parsed as XML. `_resolve_merge_sources` now also returns a `template_path` — the `.mine` sidecar (the clean local-side XML) in the conflict branch and the working-copy path otherwise — and the merge result is still written back to the working-copy path
 
 ## v1.4.2 (2026-06-12)
 

@@ -11,6 +11,15 @@ import urllib.parse
 from typing import Optional
 
 
+# Hide the transient console window each subprocess would otherwise pop up
+# when SmartDiff runs in tray (pythonw / --noconsole) mode. Harmless on POSIX.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # subprocess.CREATE_NO_WINDOW
+
+
+def _hidden_kwargs() -> dict:
+    return {"creationflags": _NO_WINDOW} if _NO_WINDOW else {}
+
+
 def _is_url(target: str) -> bool:
     return target.startswith(("http://", "https://", "svn://", "svn+ssh://", "file://"))
 
@@ -30,7 +39,7 @@ def _find_svn() -> Optional[str]:
         try:
             r = subprocess.run(
                 [candidate, "--version", "--quiet"],
-                capture_output=True, timeout=5
+                capture_output=True, timeout=5, **_hidden_kwargs()
             )
             if r.returncode == 0:
                 _svn_path = candidate
@@ -46,7 +55,8 @@ def _find_svn() -> Optional[str]:
         if os.path.isfile(tp):
             try:
                 r = subprocess.run([tp, "--version", "--quiet"],
-                                   capture_output=True, timeout=5)
+                                   capture_output=True, timeout=5,
+                                   **_hidden_kwargs())
                 if r.returncode == 0:
                     _svn_path = tp
                     return _svn_path
@@ -85,7 +95,8 @@ def _run(*args, cwd=None, timeout=30) -> tuple:
         return (-1, "", "svn not found")
     cmd = [svn] + list(args)
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout, cwd=cwd)
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout, cwd=cwd,
+                           **_hidden_kwargs())
         stdout = _decode_output(r.stdout)
         stderr = _decode_output(r.stderr)
         return (r.returncode, stdout, stderr)
@@ -104,7 +115,8 @@ def _run_raw(*args, cwd=None, timeout=30) -> tuple:
         return (-1, b"", "svn not found")
     cmd = [svn] + list(args)
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout, cwd=cwd)
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout, cwd=cwd,
+                           **_hidden_kwargs())
         stderr = _decode_output(r.stderr)
         return (r.returncode, r.stdout, stderr)
     except subprocess.TimeoutExpired:
