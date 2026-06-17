@@ -27,10 +27,9 @@ const state = {
   mergeData: null,
   mergeTheirsRev: "HEAD",
   mergeFromSvnConflict: false,
-  mergeOnlyConflicts: false,         // 工具栏过滤：只看待解决
+  mergeOnlyConflicts: true,          // 工具栏过滤：只看待解决（默认勾选）
   mergeExpandMode: "smart",          // "smart"（按需）| "all" | "none"
   mergeRowExpanded: {},              // 单行手动展开覆盖：{ "sheet:rowKey": true|false }
-  mergeShowAllXml: false,            // merge 模式文件列表：true=全部 .xml，false=只看 SVN 冲突
   // 更新流程上下文（语义合并队列）
   updateContext: null,               // { skip, theirs, mine, semanticQueue:[], semanticDone:[], totalSemantic }
   // in-app update
@@ -676,10 +675,9 @@ function renderFileList() {
   let files = state.files;
   const isMergeMode = state.mode === "merge";
   if (isMergeMode) {
-    files = files.filter(f => f.name.toLowerCase().endsWith(".xml"));
-    if (!state.mergeShowAllXml) {
-      files = files.filter(f => conflictSet.has(f.name));
-    }
+    files = files
+      .filter(f => f.name.toLowerCase().endsWith(".xml"))
+      .filter(f => conflictSet.has(f.name));
   }
   if (state.filterText) {
     const ft = state.filterText.toLowerCase();
@@ -689,19 +687,8 @@ function renderFileList() {
     files = files.filter(f => modMap[f.name] || conflictSet.has(f.name));
   }
 
-  let header = "";
-  if (isMergeMode) {
-    const total = (state.files || []).filter(f => f.name.toLowerCase().endsWith(".xml")).length;
-    const confN = conflictSet.size;
-    const showAll = state.mergeShowAllXml;
-    header = `<div class="merge-list-toggle">
-      <button class="${!showAll ? 'active' : ''}" onclick="setMergeListMode(false)" title="${t('mergeList.onlyConflictsTitle')}">${t('mergeList.onlyConflicts')} (${confN})</button>
-      <button class="${showAll ? 'active' : ''}" onclick="setMergeListMode(true)" title="${t('mergeList.showAllTitle')}">${t('mergeList.showAll')} (${total})</button>
-    </div>`;
-  }
-
   let body;
-  if (files.length === 0 && isMergeMode && !state.mergeShowAllXml) {
+  if (files.length === 0 && isMergeMode) {
     body = `<div class="empty-hint">${t('mergeList.noConflicts')}</div>`;
   } else {
     body = files.map(f => {
@@ -736,12 +723,7 @@ function renderFileList() {
     }).join("");
   }
 
-  list.innerHTML = header + body;
-}
-
-function setMergeListMode(showAll) {
-  state.mergeShowAllXml = !!showAll;
-  renderFileList();
+  list.innerHTML = body;
 }
 
 // ── Mode switching ──
@@ -960,6 +942,23 @@ function cycleMergeExpandMode() {
   state.mergeRowExpanded = {};
   renderMergeToolbar();
   renderMergeView(document.getElementById("content"));
+}
+
+// "Pure local noise" rows: the remote (THEIRS) brought no change at all and
+// the merge result is identical to the working copy. Showing them in the
+// semantic-merge view is purely visual noise (e.g. hundreds of locally-added
+// rows in an SVN-conflicted file the user just hasn't committed yet) so they
+// are filtered out unconditionally, even when "Unresolved only" is off.
+function isLocalNoiseRow(row) {
+  switch (row && row.status) {
+    case "added_mine":        // BASE 无 + MINE 加 + THEIRS 无
+    case "added_both_same":   // 双方都加同样的，结果一致
+    case "removed_mine":      // BASE 有 + MINE 删 + THEIRS 未动
+    case "removed_both":      // 双方都删，结果一致
+      return true;
+    default:
+      return false;
+  }
 }
 
 function rowNeedsAttention(row) {
@@ -2120,7 +2119,8 @@ function renderMergeSheet(sheetName, sheet) {
   let visible = 0;
   let html_rows = "";
   for (const row of sheet.rows) {
-    if (state.mergeOnlyConflicts && !rowNeedsAttention(row)) continue;
+    if (isLocalNoiseRow(row)) continue;                                  // 永久屏蔽纯本地噪音
+    if (state.mergeOnlyConflicts && !rowNeedsAttention(row)) continue;   // 勾选时再筛掉自动合并项
     html_rows += renderMergeRow(sheetName, sheet, row);
     visible++;
   }
