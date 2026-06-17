@@ -26,6 +26,7 @@ def _is_url(target: str) -> bool:
 
 _svn_path: Optional[str] = None
 _svn_checked = False
+_svn_announced = False
 
 
 def _find_svn() -> Optional[str]:
@@ -67,9 +68,11 @@ def _find_svn() -> Optional[str]:
 
 
 def is_available() -> bool:
+    global _svn_announced
     svn = _find_svn()
-    if svn:
+    if svn and not _svn_announced:
         print(f"[SVN] Using: {svn}", flush=True)
+        _svn_announced = True
     return svn is not None
 
 
