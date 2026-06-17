@@ -1357,6 +1357,72 @@ body {
   background: #6e40c9;
   color: #fff;
 }
+.update-modal .conflict-item .actions button.selected-semantic {
+  background: #6e40c9 !important;
+  color: #fff !important;
+  border-color: #6e40c9 !important;
+}
+
+/* Conflicted-status dot (red) */
+.file-item .status-dot.conflicted {
+  background: #f85149;
+  box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.4);
+}
+
+/* Merge mode: file-list header toggle */
+.merge-list-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.merge-list-toggle button {
+  flex: 1;
+  padding: 4px 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.merge-list-toggle button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.merge-list-toggle button:hover:not(.active) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.empty-hint {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* Merge toolbar: queue progress hint */
+.merge-queue-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px dashed #6e40c9;
+  border-radius: 4px;
+  color: #d2a8ff;
+  font-size: 12px;
+  background: rgba(110, 64, 201, 0.1);
+}
+.merge-queue-hint button {
+  margin-left: 4px;
+  font-size: 11px;
+  padding: 2px 6px;
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }

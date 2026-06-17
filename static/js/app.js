@@ -5,6 +5,7 @@ const state = {
   mode: "local",       // "local" | "revision" | "browse" | "overview" | "merge"
   files: [],
   modifiedFiles: [],
+  conflictedFiles: [],               // 来自 /api/svn/conflicted 的相对路径
   selectedFile: null,
   filterText: "",
   showOnlyModified: false,
@@ -29,6 +30,9 @@ const state = {
   mergeOnlyConflicts: false,         // 工具栏过滤：只看待解决
   mergeExpandMode: "smart",          // "smart"（按需）| "all" | "none"
   mergeRowExpanded: {},              // 单行手动展开覆盖：{ "sheet:rowKey": true|false }
+  mergeShowAllXml: false,            // merge 模式文件列表：true=全部 .xml，false=只看 SVN 冲突
+  // 更新流程上下文（语义合并队列）
+  updateContext: null,               // { skip, theirs, mine, semanticQueue:[], semanticDone:[], totalSemantic }
   // in-app update
   updateInfo: null,                  // /api/update/check 结果
   updateBusy: false,                 // 下载/重启流程进行中
@@ -94,6 +98,7 @@ async function init() {
     if (state.config.svn_available) {
       loadModifiedFiles();
       loadModifiedClassify();
+      loadConflictedFiles();
       startRemoteVersionCheck();
     }
     setTimeout(checkUpdateSilent, 5000);
@@ -126,6 +131,18 @@ async function loadModifiedClassify() {
     state.modifiedClassify = data.classify || {};
     renderFileList();
   } catch (_) { /* non-critical */ }
+}
+
+async function loadConflictedFiles() {
+  try {
+    const data = await api("/api/svn/conflicted");
+    state.conflictedFiles = data.files || [];
+    renderFileList();
+  } catch (_) { state.conflictedFiles = []; }
+}
+
+function isConflicted(name) {
+  return state.conflictedFiles && state.conflictedFiles.indexOf(name) >= 0;
 }
 
 // ── Render: Header ──
@@ -174,7 +191,10 @@ async function switchWorkspace(idx) {
     if (state.config.svn_available) {
       loadModifiedFiles();
       loadModifiedClassify();
+      loadConflictedFiles();
       startRemoteVersionCheck();
+    } else {
+      state.conflictedFiles = [];
     }
     if (state.mode === "overview") {
       loadOverviewLog();
@@ -215,6 +235,7 @@ async function _doAddWorkspace(path) {
     await loadFiles();
     if (state.config.svn_available) {
       loadModifiedFiles();
+      loadConflictedFiles();
       startRemoteVersionCheck();
     }
   } catch (e) {
@@ -399,6 +420,8 @@ function startRemoteVersionCheck() {
 
 async function checkRemoteVersion() {
   if (!state.config || !state.config.svn_available) return;
+  // 流程进行中（语义合并队列 / 正在更新）不要覆盖 banner
+  if (state.updateContext) return;
   if (_bannerDismissed) return;
   try {
     const data = await api("/api/svn/remote-revision");
@@ -410,6 +433,7 @@ async function checkRemoteVersion() {
         `<button class="btn-dismiss" onclick="dismissBanner()">${t('update.dismiss')}</button>`;
       banner.style.display = "flex";
     } else {
+      banner.innerHTML = "";
       banner.style.display = "none";
     }
   } catch (_) {}
@@ -460,8 +484,9 @@ function showUpdateConflictModal(checkData) {
   let conflictHtml = "";
   for (const fname of conflicts) {
     const isXml = fname.toLowerCase().endsWith(".xml");
+    const safeName = fname.replace(/'/g, "\\'");
     const semBtn = isXml
-      ? `<button onclick="openMergeFromConflict('${fname.replace(/'/g, "\\'")}')" title="${t('conflict.mergeTitle')}" class="btn-merge">${t('conflict.mergeBtn')}</button>`
+      ? `<button onclick="setConflictChoice(this,'semantic')" title="${t('conflict.mergeTitle')}" class="btn-merge">${t('conflict.mergeBtn')}</button>`
       : "";
     conflictHtml += `<div class="conflict-item" data-file="${fname}">
       <span class="fname">${fname}</span>
@@ -491,19 +516,25 @@ function showUpdateConflictModal(checkData) {
 function setConflictChoice(btn, choice) {
   const item = btn.closest(".conflict-item");
   item.querySelectorAll("button").forEach(b => {
-    b.className = "";
+    b.className = b.classList.contains("btn-merge") ? "btn-merge" : "";
   });
-  btn.className = choice === "theirs" ? "selected-theirs" :
-                  choice === "mine" ? "selected-mine" : "selected-skip";
+  if (choice === "theirs") btn.classList.add("selected-theirs");
+  else if (choice === "mine") btn.classList.add("selected-mine");
+  else if (choice === "semantic") btn.classList.add("selected-semantic");
+  else btn.classList.add("selected-skip");
   item.dataset.choice = choice;
 }
 
 function skipAllConflicts() {
   document.querySelectorAll(".conflict-item").forEach(item => {
     item.dataset.choice = "skip";
-    item.querySelectorAll("button").forEach(b => b.className = "");
-    const skipBtn = item.querySelector("button:last-child");
-    if (skipBtn) skipBtn.className = "selected-skip";
+    item.querySelectorAll("button").forEach(b => {
+      b.className = b.classList.contains("btn-merge") ? "btn-merge" : "";
+    });
+    const buttons = item.querySelectorAll(".actions > button");
+    // skip 是固定第 3 个按钮（mine / theirs / skip [/ semantic]）
+    const skipBtn = buttons[2];
+    if (skipBtn) skipBtn.classList.add("selected-skip");
   });
   executeUpdate();
 }
@@ -513,6 +544,7 @@ async function executeUpdate() {
   const skip_files = [];
   const theirs_files = [];
   const mine_files = [];
+  const semantic_files = [];
 
   items.forEach(item => {
     const fname = item.dataset.file;
@@ -520,6 +552,7 @@ async function executeUpdate() {
     if (choice === "skip") skip_files.push(fname);
     else if (choice === "theirs") theirs_files.push(fname);
     else if (choice === "mine") mine_files.push(fname);
+    else if (choice === "semantic") semantic_files.push(fname);
   });
 
   closeUpdateModal();
@@ -527,24 +560,89 @@ async function executeUpdate() {
   banner.innerHTML = `${t('update.inProgress')}`;
   banner.style.display = "flex";
 
+  if (semantic_files.length > 0) {
+    // 进入语义合并队列：每个文件让用户在 merge 模式手动决议；
+    // 队列完成后再统一调一次 /api/svn/update，把已合并文件作为 semantic_files 传入。
+    state.updateContext = {
+      skip_files, theirs_files, mine_files,
+      semanticQueue: semantic_files.slice(),
+      semanticDone: [],
+      totalSemantic: semantic_files.length,
+    };
+    _processNextSemantic();
+    return;
+  }
+
+  await _runUpdateAndReport({ skip_files, theirs_files, mine_files, semantic_files: [] });
+}
+
+async function _runUpdateAndReport(payload) {
+  const banner = document.getElementById("updateBanner");
   try {
     const result = await api("/api/svn/update", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ skip_files, theirs_files, mine_files }),
+      body: JSON.stringify(payload),
     });
     const parts = [];
     if (result.updated) parts.push(t('update.doneUpdated', result.updated));
-    if (result.skipped.length) parts.push(t('update.doneSkipped', result.skipped.length));
-    if (result.theirs.length) parts.push(t('update.doneTheirs', result.theirs.length));
-    if (result.mine.length) parts.push(t('update.doneMine', result.mine.length));
-    if (result.errors.length) parts.push(t('update.doneErrors', result.errors.length));
+    if (result.skipped && result.skipped.length) parts.push(t('update.doneSkipped', result.skipped.length));
+    if (result.theirs && result.theirs.length) parts.push(t('update.doneTheirs', result.theirs.length));
+    if (result.mine && result.mine.length) parts.push(t('update.doneMine', result.mine.length));
+    if (result.semantic && result.semantic.length) parts.push(t('update.doneSemantic', result.semantic.length));
+    if (result.errors && result.errors.length) parts.push(t('update.doneErrors', result.errors.length));
     banner.innerHTML = `${t('update.doneDetail', parts.join(", "))}`;
-    setTimeout(() => { banner.style.display = "none"; }, 5000);
+    setTimeout(() => { banner.style.display = "none"; checkRemoteVersion(); }, 5000);
     await reloadAfterUpdate();
   } catch (e) {
     banner.innerHTML = `${t('update.failed', e.message)} <button class="btn-dismiss" onclick="dismissBanner()">${t('update.close')}</button>`;
+    banner.style.display = "flex";
   }
+}
+
+function _processNextSemantic() {
+  const ctx = state.updateContext;
+  if (!ctx || ctx.semanticQueue.length === 0) {
+    _finishSemanticQueue();
+    return;
+  }
+  const fname = ctx.semanticQueue[0];
+  const idx = ctx.semanticDone.length + 1;
+  const total = ctx.totalSemantic;
+  const banner = document.getElementById("updateBanner");
+  banner.innerHTML = t('update.semanticStep', fname, idx, total);
+  banner.style.display = "flex";
+
+  state.mergeFromSvnConflict = true;
+  setMode("merge");
+  selectFile(fname);
+}
+
+async function _finishSemanticQueue() {
+  const ctx = state.updateContext;
+  if (!ctx) return;
+  const banner = document.getElementById("updateBanner");
+  banner.innerHTML = t('update.semanticQueueDone');
+  banner.style.display = "flex";
+
+  const payload = {
+    skip_files: ctx.skip_files,
+    theirs_files: ctx.theirs_files,
+    mine_files: ctx.mine_files,
+    semantic_files: ctx.semanticDone,
+  };
+  state.updateContext = null;
+  await _runUpdateAndReport(payload);
+}
+
+function cancelSemanticQueue() {
+  if (!state.updateContext) return;
+  if (!confirm(t('merge.confirmCancelQueue'))) return;
+  state.updateContext = null;
+  state.mergeFromSvnConflict = false;
+  const banner = document.getElementById("updateBanner");
+  if (banner) banner.style.display = "none";
+  checkRemoteVersion();
 }
 
 function closeUpdateModal() {
@@ -556,10 +654,15 @@ async function reloadAfterUpdate() {
   state.config = await api("/api/config");
   renderHeader();
   await loadFiles();
-  if (state.config.svn_available) loadModifiedFiles();
+  if (state.config.svn_available) {
+    loadModifiedFiles();
+    loadModifiedClassify();
+    loadConflictedFiles();
+  }
   if (state.selectedFile && state.mode === "local") {
     doDiffLocal();
   }
+  checkRemoteVersion();
 }
 
 // ── Render: File list ──
@@ -568,43 +671,77 @@ function renderFileList() {
   const list = document.getElementById("fileList");
   const modMap = {};
   state.modifiedFiles.forEach(f => { modMap[f.name] = f.status; });
+  const conflictSet = new Set(state.conflictedFiles || []);
 
   let files = state.files;
-  if (state.mode === "merge") {
+  const isMergeMode = state.mode === "merge";
+  if (isMergeMode) {
     files = files.filter(f => f.name.toLowerCase().endsWith(".xml"));
+    if (!state.mergeShowAllXml) {
+      files = files.filter(f => conflictSet.has(f.name));
+    }
   }
   if (state.filterText) {
     const ft = state.filterText.toLowerCase();
     files = files.filter(f => f.name.toLowerCase().includes(ft));
   }
   if (state.showOnlyModified) {
-    files = files.filter(f => modMap[f.name]);
+    files = files.filter(f => modMap[f.name] || conflictSet.has(f.name));
   }
 
-  list.innerHTML = files.map(f => {
-    const status = modMap[f.name] || "";
-    const active = state.selectedFile === f.name ? " active" : "";
-    let dotClass = "";
-    if (status === "added") dotClass = " added";
-    else if (status === "deleted") dotClass = " deleted";
-    else if (status) {
-      const cls = state.modifiedClassify[f.name];
-      dotClass = cls === "meta" ? " meta-change" : " data-change";
-    }
-    const lowName = f.name.toLowerCase();
-    const typeBadge = lowName.endsWith(".xlsx") ? '<span class="type-badge xlsx">XLSX</span>'
-                    : lowName.endsWith(".xls") ? '<span class="type-badge xls">XLS</span>' : '';
-    const slashIdx = f.name.lastIndexOf("/");
-    const displayName = slashIdx >= 0 ? f.name.substring(slashIdx + 1) : f.name;
-    const dirBadge = slashIdx >= 0 ? `<span class="type-badge dir">${f.name.substring(0, slashIdx)}</span>` : '';
-    const safeName = f.name.replace(/&/g,"&amp;").replace(/'/g,"&#39;").replace(/"/g,"&quot;");
-    return `<div class="file-item${active}" onclick="selectFile('${safeName}')">
-      <span class="status-dot${dotClass}"></span>
-      <span class="name" title="${f.name}">${displayName}</span>
-      ${typeBadge}${dirBadge}
-      <span class="size">${formatSize(f.size)}</span>
+  let header = "";
+  if (isMergeMode) {
+    const total = (state.files || []).filter(f => f.name.toLowerCase().endsWith(".xml")).length;
+    const confN = conflictSet.size;
+    const showAll = state.mergeShowAllXml;
+    header = `<div class="merge-list-toggle">
+      <button class="${!showAll ? 'active' : ''}" onclick="setMergeListMode(false)" title="${t('mergeList.onlyConflictsTitle')}">${t('mergeList.onlyConflicts')} (${confN})</button>
+      <button class="${showAll ? 'active' : ''}" onclick="setMergeListMode(true)" title="${t('mergeList.showAllTitle')}">${t('mergeList.showAll')} (${total})</button>
     </div>`;
-  }).join("");
+  }
+
+  let body;
+  if (files.length === 0 && isMergeMode && !state.mergeShowAllXml) {
+    body = `<div class="empty-hint">${t('mergeList.noConflicts')}</div>`;
+  } else {
+    body = files.map(f => {
+      const status = modMap[f.name] || "";
+      const active = state.selectedFile === f.name ? " active" : "";
+      let dotClass = "";
+      let dotTitle = "";
+      if (conflictSet.has(f.name)) {
+        dotClass = " conflicted";
+        dotTitle = t('dot.conflicted');
+      } else if (status === "added") { dotClass = " added"; dotTitle = t('dot.added'); }
+      else if (status === "deleted") { dotClass = " deleted"; dotTitle = t('dot.deleted'); }
+      else if (status === "conflicted") { dotClass = " conflicted"; dotTitle = t('dot.conflicted'); }
+      else if (status) {
+        const cls = state.modifiedClassify[f.name];
+        dotClass = cls === "meta" ? " meta-change" : " data-change";
+        dotTitle = cls === "meta" ? t('dot.metaChange') : t('dot.dataChange');
+      }
+      const lowName = f.name.toLowerCase();
+      const typeBadge = lowName.endsWith(".xlsx") ? '<span class="type-badge xlsx">XLSX</span>'
+                      : lowName.endsWith(".xls") ? '<span class="type-badge xls">XLS</span>' : '';
+      const slashIdx = f.name.lastIndexOf("/");
+      const displayName = slashIdx >= 0 ? f.name.substring(slashIdx + 1) : f.name;
+      const dirBadge = slashIdx >= 0 ? `<span class="type-badge dir">${f.name.substring(0, slashIdx)}</span>` : '';
+      const safeName = f.name.replace(/&/g,"&amp;").replace(/'/g,"&#39;").replace(/"/g,"&quot;");
+      return `<div class="file-item${active}" onclick="selectFile('${safeName}')">
+        <span class="status-dot${dotClass}"${dotTitle ? ` title="${dotTitle}"` : ""}></span>
+        <span class="name" title="${f.name}">${displayName}</span>
+        ${typeBadge}${dirBadge}
+        <span class="size">${formatSize(f.size)}</span>
+      </div>`;
+    }).join("");
+  }
+
+  list.innerHTML = header + body;
+}
+
+function setMergeListMode(showAll) {
+  state.mergeShowAllXml = !!showAll;
+  renderFileList();
 }
 
 // ── Mode switching ──
@@ -629,6 +766,10 @@ function setMode(mode) {
   } else {
     sidebar.style.display = "";
     app.style.gridTemplateColumns = "320px 1fr";
+  }
+
+  if (mode === "merge" && state.config && state.config.svn_available) {
+    loadConflictedFiles();
   }
 
   renderFileList();
@@ -777,6 +918,16 @@ function renderMergeToolbar() {
     ? `<span style="font-size:13px;color:var(--text-bright)">${state.selectedFile}</span>`
     : `<span style="font-size:13px;color:var(--text-dim)">${t('merge.noFile')}</span>`;
 
+  let queueHint = "";
+  if (state.updateContext) {
+    const ctx = state.updateContext;
+    const idx = ctx.semanticDone.length + (ctx.semanticQueue.length > 0 ? 1 : 0);
+    queueHint = `<span class="merge-queue-hint" title="${t('merge.queueHint', idx, ctx.totalSemantic)}">
+      ${t('merge.queueHint', idx, ctx.totalSemantic)}
+      <button class="btn" onclick="cancelSemanticQueue()">${t('merge.queueCancel')}</button>
+    </span>`;
+  }
+
   tb.innerHTML = `
     ${fname}
     <label>${t('merge.compareVersion')}</label>
@@ -785,6 +936,7 @@ function renderMergeToolbar() {
     ${stats}
     ${progress}
     ${extras}
+    ${queueHint}
     <div style="flex:1"></div>
     <button class="btn primary" id="applyMergeBtn" onclick="applyMerge()" ${applyBtnDisabled}>${t('merge.applyAndSave')}</button>`;
 
@@ -1758,18 +1910,34 @@ async function applyMerge() {
 
   const resolutions = collectResolutions();
   const fromSvn = !!state.mergeFromSvnConflict;
+  const currentFile = state.selectedFile;
+  const inQueue = !!(state.updateContext && state.updateContext.semanticQueue.length > 0
+                     && state.updateContext.semanticQueue[0] === currentFile);
 
   try {
     const result = await api("/api/merge/apply", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        file: state.selectedFile,
+        file: currentFile,
         theirs_rev: state.mergeData.theirs_revision || state.mergeTheirsRev || "HEAD",
         resolutions: resolutions,
         mark_resolved: fromSvn,
       }),
     });
+
+    if (inQueue) {
+      state.updateContext.semanticQueue.shift();
+      state.updateContext.semanticDone.push(currentFile);
+      loadConflictedFiles();
+      if (state.updateContext.semanticQueue.length > 0) {
+        _processNextSemantic();
+      } else {
+        _finishSemanticQueue();
+      }
+      return;
+    }
+
     const msg = t('merge.applySuccess', result.applied) + (result.svn_resolved ? t('merge.svnResolved') : "");
     state.mergeFromSvnConflict = false;
     alert(msg);
@@ -1777,6 +1945,8 @@ async function applyMerge() {
     loadFiles();
     loadModifiedFiles();
     loadModifiedClassify();
+    loadConflictedFiles();
+    checkRemoteVersion();
   } catch (e) {
     alert(t('merge.applyFailed', e.message));
   }
@@ -2236,6 +2406,7 @@ function renderMergeCell(sheetName, row, col, cell) {
 }
 
 function openMergeFromConflict(fname) {
+  // 兼容旧入口（如果还有从外部调用），直接打开 merge 视图
   closeUpdateModal();
   state.mergeFromSvnConflict = true;
   setMode("merge");

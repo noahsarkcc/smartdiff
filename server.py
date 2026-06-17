@@ -2,14 +2,16 @@
 Flask server for SmartDiff.
 Provides REST API for parsing, diffing, and SVN integration.
 """
-__version__ = "1.4.2"
+__version__ = "1.5.0"
 
 import os
 import sys
 import json
 import time
+import logging
 import webbrowser
 import threading
+from logging.handlers import RotatingFileHandler
 from flask import Flask, request, jsonify, send_from_directory
 
 import xml_parser
@@ -18,6 +20,13 @@ import xml_differ
 import xml_merger
 import svn_helper
 import updater
+
+try:
+    import tray as tray_module
+    _HAS_TRAY = tray_module.AVAILABLE
+except Exception:
+    tray_module = None
+    _HAS_TRAY = False
 
 
 SUPPORTED_EXTENSIONS = (".xml", ".xlsx", ".xls")
@@ -55,6 +64,84 @@ def _get_base_content(filepath: str):
 def _get_file_at_revision(filepath: str, revision: int):
     """Get file content at an SVN revision as raw bytes (see _get_base_content)."""
     return svn_helper.get_file_at_revision_raw(filepath, revision)
+
+
+def _read_bytes(path: str):
+    """Read a file as raw bytes; returns None when missing/unreadable."""
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _resolve_merge_sources(fpath: str, theirs_rev_hint="HEAD") -> dict:
+    """Resolve BASE / MINE / THEIRS contents for three-way merge.
+
+    When the working-copy file is in an SVN text-conflict state, the working
+    copy itself has conflict markers (and svn cat -r BASE returns the freshly
+    pulled HEAD, not the pre-update ancestor). In that case we read the three
+    sidecar files SVN keeps next to the conflicted file:
+
+      <name>.r<oldRev> -- BASE
+      <name>.mine      -- MINE
+      <name>.r<newRev> -- THEIRS
+
+    Otherwise we fall back to the regular path (svn cat BASE / working copy /
+    svn cat HEAD-or-revision). Returns a dict with raw bytes plus labels.
+    Raises ValueError when one of the three sources cannot be obtained.
+    """
+    conflict = svn_helper.get_conflict_info(fpath)
+    if conflict:
+        base = _read_bytes(conflict["base_file"])
+        mine = _read_bytes(conflict["mine_file"])
+        theirs = _read_bytes(conflict["theirs_file"])
+        if base is None or mine is None or theirs is None:
+            raise ValueError("\u65e0\u6cd5\u8bfb\u53d6 SVN \u51b2\u7a81\u7684\u65c1\u8def\u6587\u4ef6")
+        return {
+            "is_conflict": True,
+            "base": base,
+            "mine": mine,
+            "theirs": theirs,
+            "base_label": f"r{conflict['base_rev']}" if conflict.get("base_rev") else "BASE",
+            "mine_label": "\u5de5\u4f5c\u526f\u672c",
+            "theirs_label": f"r{conflict['theirs_rev']}" if conflict.get("theirs_rev") else "HEAD",
+            "theirs_revision": conflict.get("theirs_rev"),
+        }
+
+    base = _get_base_content(fpath)
+    if base is None:
+        raise ValueError("\u65e0\u6cd5\u83b7\u53d6 SVN BASE \u7248\u672c")
+    mine = _read_bytes(fpath)
+    if mine is None:
+        raise ValueError("\u65e0\u6cd5\u8bfb\u53d6\u5de5\u4f5c\u526f\u672c")
+
+    if str(theirs_rev_hint).upper() == "HEAD":
+        info = svn_helper.get_svn_info(fpath)
+        head = svn_helper.get_remote_head_revision(info["url"]) if info and info.get("url") else None
+        if head is None:
+            raise ValueError("\u65e0\u6cd5\u83b7\u53d6\u8fdc\u7a0b HEAD \u7248\u672c")
+        theirs_rev_int = int(head)
+    else:
+        try:
+            theirs_rev_int = int(theirs_rev_hint)
+        except (TypeError, ValueError):
+            raise ValueError("Invalid theirs_rev")
+
+    theirs = _get_file_at_revision(fpath, theirs_rev_int)
+    if theirs is None:
+        raise ValueError(f"\u65e0\u6cd5\u83b7\u53d6 r{theirs_rev_int} \u7248\u672c")
+
+    return {
+        "is_conflict": False,
+        "base": base,
+        "mine": mine,
+        "theirs": theirs,
+        "base_label": "SVN BASE",
+        "mine_label": "\u5de5\u4f5c\u526f\u672c",
+        "theirs_label": f"r{theirs_rev_int}",
+        "theirs_revision": theirs_rev_int,
+    }
 
 def _base_dir():
     """Return the base directory — handles both normal and PyInstaller frozen mode."""
@@ -780,31 +867,16 @@ def api_merge_preview():
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
 
-    base_content = _get_base_content(fpath)
-    if base_content is None:
-        return jsonify({"error": "\u65e0\u6cd5\u83b7\u53d6 SVN BASE \u7248\u672c"}), 500
-
-    if str(theirs_rev).upper() == "HEAD":
-        info = svn_helper.get_svn_info(fpath)
-        head = svn_helper.get_remote_head_revision(info["url"]) if info and info.get("url") else None
-        if head is None:
-            return jsonify({"error": "\u65e0\u6cd5\u83b7\u53d6\u8fdc\u7a0b HEAD \u7248\u672c"}), 500
-        theirs_rev_int = int(head)
-    else:
-        try:
-            theirs_rev_int = int(theirs_rev)
-        except (TypeError, ValueError):
-            return jsonify({"error": "Invalid theirs_rev"}), 400
-
-    theirs_content = _get_file_at_revision(fpath, theirs_rev_int)
-    if theirs_content is None:
-        return jsonify({"error": f"\u65e0\u6cd5\u83b7\u53d6 r{theirs_rev_int} \u7248\u672c"}), 500
+    try:
+        sources = _resolve_merge_sources(fpath, theirs_rev_hint=theirs_rev)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 500
 
     try:
         hr = _get_header_row()
-        base = xml_parser.parse_string(base_content, header_row=hr)
-        mine = xml_parser.parse_file(fpath, header_row=hr)
-        theirs = xml_parser.parse_string(theirs_content, header_row=hr)
+        base = xml_parser.parse_string(sources["base"], header_row=hr)
+        mine = xml_parser.parse_string(sources["mine"], header_row=hr)
+        theirs = xml_parser.parse_string(sources["theirs"], header_row=hr)
         result = xml_merger.three_way_diff(base, mine, theirs,
                                            id_column=body.get("id_column"))
     except Exception as e:
@@ -813,10 +885,11 @@ def api_merge_preview():
         return jsonify({"error": str(e)}), 500
 
     result["file"] = filename
-    result["base_label"] = "SVN BASE"
-    result["mine_label"] = "\u5de5\u4f5c\u526f\u672c"
-    result["theirs_label"] = f"r{theirs_rev_int}"
-    result["theirs_revision"] = theirs_rev_int
+    result["base_label"] = sources["base_label"]
+    result["mine_label"] = sources["mine_label"]
+    result["theirs_label"] = sources["theirs_label"]
+    result["theirs_revision"] = sources["theirs_revision"]
+    result["from_svn_conflict"] = sources["is_conflict"]
     return jsonify(result)
 
 
@@ -846,31 +919,16 @@ def api_merge_apply():
     if not os.path.exists(fpath):
         return jsonify({"error": f"File not found: {filename}"}), 404
 
-    base_content = _get_base_content(fpath)
-    if base_content is None:
-        return jsonify({"error": "\u65e0\u6cd5\u83b7\u53d6 SVN BASE"}), 500
-
-    if str(theirs_rev).upper() == "HEAD":
-        info = svn_helper.get_svn_info(fpath)
-        head = svn_helper.get_remote_head_revision(info["url"]) if info and info.get("url") else None
-        if head is None:
-            return jsonify({"error": "\u65e0\u6cd5\u83b7\u53d6\u8fdc\u7a0b HEAD"}), 500
-        theirs_rev_int = int(head)
-    else:
-        try:
-            theirs_rev_int = int(theirs_rev)
-        except (TypeError, ValueError):
-            return jsonify({"error": "Invalid theirs_rev"}), 400
-
-    theirs_content = _get_file_at_revision(fpath, theirs_rev_int)
-    if theirs_content is None:
-        return jsonify({"error": f"\u65e0\u6cd5\u83b7\u53d6 r{theirs_rev_int}"}), 500
+    try:
+        sources = _resolve_merge_sources(fpath, theirs_rev_hint=theirs_rev)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 500
 
     try:
         hr = _get_header_row()
-        base = xml_parser.parse_string(base_content, header_row=hr)
-        mine = xml_parser.parse_file(fpath, header_row=hr)
-        theirs = xml_parser.parse_string(theirs_content, header_row=hr)
+        base = xml_parser.parse_string(sources["base"], header_row=hr)
+        mine = xml_parser.parse_string(sources["mine"], header_row=hr)
+        theirs = xml_parser.parse_string(sources["theirs"], header_row=hr)
         result = xml_merger.three_way_diff(base, mine, theirs,
                                            id_column=body.get("id_column"))
         applied = xml_merger.apply_resolutions(result, resolutions)
@@ -886,8 +944,10 @@ def api_merge_apply():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+    # Auto-resolve SVN conflict when the merge originated from one, since the
+    # working-copy file now holds the fully-merged content (no markers).
     svn_resolved = False
-    if mark_resolved:
+    if mark_resolved or sources["is_conflict"]:
         rc, _out, _err = svn_helper._run("resolve", "--accept", "working", fpath)
         svn_resolved = (rc == 0)
 
@@ -896,6 +956,7 @@ def api_merge_apply():
         "file": filename,
         "applied": applied["applied"],
         "svn_resolved": svn_resolved,
+        "from_svn_conflict": sources["is_conflict"],
     })
 
 
@@ -937,6 +998,21 @@ def api_svn_remote_revision():
     })
 
 
+@app.route("/api/svn/conflicted")
+def api_svn_conflicted():
+    """List files currently in SVN conflicted state (workspace-relative)."""
+    if not svn_helper.is_available():
+        return jsonify({"error": "SVN not available"}), 503
+    wd = _get_work_dir()
+    if not wd:
+        return jsonify({"files": [], "count": 0})
+    rels = sorted({
+        _rel_to_workdir(p, wd)
+        for p in svn_helper.get_conflicted_files(wd) if p
+    })
+    return jsonify({"files": rels, "count": len(rels)})
+
+
 @app.route("/api/svn/update", methods=["POST"])
 def api_svn_update():
     """Smart SVN update with conflict detection."""
@@ -968,7 +1044,9 @@ def api_svn_update():
     skip_files = body.get("skip_files", [])
     theirs_files = body.get("theirs_files", [])
     mine_files = body.get("mine_files", [])
-    result = svn_helper.smart_update(wd, skip_files, theirs_files, mine_files)
+    semantic_files = body.get("semantic_files", [])
+    result = svn_helper.smart_update(wd, skip_files, theirs_files,
+                                     mine_files, semantic_files)
     return jsonify(result)
 
 
@@ -1005,12 +1083,92 @@ def kill_existing_on_port(port):
         pass
 
 
-if __name__ == "__main__":
+def _log_path() -> str:
+    """Resolve the log file path next to the executable / source script."""
+    logs_dir = os.path.join(_base_dir(), "logs")
+    try:
+        os.makedirs(logs_dir, exist_ok=True)
+    except OSError:
+        logs_dir = _base_dir()
+    return os.path.join(logs_dir, "server.log")
+
+
+class _StreamToLogger:
+    """File-like object that forwards writes to a logger (for stdout/stderr)."""
+
+    def __init__(self, logger, level=logging.INFO):
+        self._logger = logger
+        self._level = level
+        self._buf = ""
+
+    def write(self, msg):
+        if not msg:
+            return
+        self._buf += msg
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line.strip():
+                self._logger.log(self._level, line)
+
+    def flush(self):
+        if self._buf.strip():
+            self._logger.log(self._level, self._buf.strip())
+        self._buf = ""
+
+
+def _configure_file_logging(log_path: str, redirect_stdio: bool):
+    """Wire root logger + (optionally) stdout/stderr into a rotating file."""
+    handler = RotatingFileHandler(log_path, maxBytes=1_000_000,
+                                  backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+    if redirect_stdio:
+        logger = logging.getLogger("smartdiff")
+        sys.stdout = _StreamToLogger(logger, logging.INFO)
+        sys.stderr = _StreamToLogger(logger, logging.ERROR)
+
+
+def _run_flask(port: int):
+    """Run Flask. Disables the reloader so it can live in a background thread."""
+    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+
+
+def _main():
     port = int(os.environ.get("PORT", 5566))
     kill_existing_on_port(port)
+
+    # --console keeps the legacy console behaviour for debugging.
+    use_tray = _HAS_TRAY and ("--console" not in sys.argv)
+    log_path = _log_path()
+    _configure_file_logging(log_path, redirect_stdio=use_tray)
+
     print(f"SmartDiff starting on http://localhost:{port}")
     print(f"Work directory: {_get_work_dir()}")
     print(f"SVN: {'available' if svn_helper.is_available() else 'not found'}")
+    print(f"Tray: {'enabled' if use_tray else 'disabled (console mode)'}")
+    print(f"Log file: {log_path}")
+
+    if use_tray:
+        threading.Thread(target=_run_flask, args=(port,), daemon=True).start()
+        threading.Thread(target=open_browser, args=(port,), daemon=True).start()
+        tray_module.start_tray(
+            port=port,
+            log_path=log_path,
+            workspace_resolver=_get_work_dir,
+            shutdown_fn=lambda: None,
+        )
+        # When the tray loop returns without quitting (e.g. unsupported env),
+        # fall through to the blocking Flask call.
+        os._exit(0)
 
     threading.Thread(target=open_browser, args=(port,), daemon=True).start()
-    app.run(host="127.0.0.1", port=port, debug=False)
+    _run_flask(port)
+
+
+if __name__ == "__main__":
+    _main()

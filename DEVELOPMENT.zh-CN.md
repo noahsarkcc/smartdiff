@@ -33,9 +33,11 @@ smartdiff/
 ├── xml_merger.py        # 三方语义合并引擎（BASE/MINE/THEIRS）
 ├── svn_helper.py        # SVN CLI 集成
 ├── updater.py           # 应用内自动更新（GitHub Releases + 加速代理）
+├── tray.py              # 系统托盘集成（pystray + PIL）
 ├── config.json          # 工作区配置（运行时生成，已 .gitignore）
 ├── requirements.txt     # Python 依赖
-├── start.bat            # Windows 一键启动脚本
+├── start.bat            # Windows 一键启动（托盘模式，pythonw 静默）
+├── start_console.bat    # 控制台模式启动（--console，便于排错）
 ├── build.bat            # PyInstaller 本地打包脚本（与 release.yml 对齐）
 ├── .github/workflows/
 │   ├── test.yml         # CI：3 个 Python 版本跑全量测试
@@ -163,7 +165,8 @@ smartdiff/
 - **URL 解码**：SVN 输出的 URL 对非 ASCII 文件名做百分号编码，`get_log` / `get_changed_files_between_revisions` / `get_remote_changed_files` 统一 `unquote` 后再与本地路径比较，保证中文文件名的冲突检测与历史过滤正确
 - **版本过滤**：`--stop-on-copy` 避免显示拷贝前的历史；`get_log` 额外按路径过滤；`get_changed_files_between_revisions` 跳过当前目录之外的文件
 - **二进制支持**：`_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` 返回原始字节流。XML 文件内容也走 raw 路径，由 ElementTree 按 XML 声明自动解码（支持 UTF-16 等编码）
-- **`smart_update`** 支持三种冲突策略：`skip / theirs / mine`；冲突状态通过 `svn status --xml`（`get_conflicted_files`）判断，与 svn 输出语言无关
+- **`smart_update`** 支持四种冲突策略：`skip / theirs / mine / semantic`；前三种对应 `svn resolve --accept mine-full/theirs-full/mine-full`，`semantic` 对应 `--accept working`（合并结果已由 `/api/merge/apply` 写回工作副本）；冲突状态通过 `svn status --xml`（`get_conflicted_files`）判断，与 svn 输出语言无关
+- **`get_conflict_info(filepath)`** 解析 `svn info --xml` 暴露的 `<conflict type="text">`，返回 BASE / MINE / THEIRS 三个旁路文件路径（`.r<old>` / `.mine` / `.r<new>`）和对应版本号；用于让 `/api/merge/preview|apply` 在文件已被 SVN 写入 `<<<<<<<` 标记的情况下，绕开被污染的工作副本读到正确的三方内容。非冲突文件返回 `None`，merge 接口自动 fallback 到 `svn cat -r BASE` / 工作副本 / `svn cat HEAD` 的常规路径
 
 ### `updater.py` — 应用内自动更新
 
@@ -188,7 +191,8 @@ smartdiff/
 | GET | `/api/svn/modified[-classify]` | 本地修改文件；`classify` 区分 `data`（实质数据变更）vs `meta`（仅格式） |
 | GET | `/api/svn/log`, `/api/svn/dir-log`, `/api/svn/changed-files` | 版本历史（文件 / 目录 / 两版本之间） |
 | GET | `/api/svn/remote-revision` | 远程 HEAD vs 本地 BASE 版本号对比 |
-| POST | `/api/svn/update` | 智能 SVN 更新（`check_only` 检测冲突） |
+| POST | `/api/svn/update` | 智能 SVN 更新（`check_only` 检测冲突；body 接受 `skip_files / theirs_files / mine_files / semantic_files`） |
+| GET  | `/api/svn/conflicted` | 列出当前处于 SVN 冲突状态的工作区文件（merge 模式默认过滤源） |
 | GET | `/api/parse?file=` | 解析文件（自动识别 XML/XLSX） |
 | POST | `/api/diff/{local,revisions,overview,batch}` | Diff 接口 |
 | POST | `/api/merge/preview` | 三方合并预览（仅 .xml） |
@@ -218,7 +222,14 @@ smartdiff/
 - 单元格 badge：`本`（蓝）、`远`（紫）、`=`（绿）、`✎`（黄）、`!`（红，未决议）
 - 工具栏：自动 / 冲突 / 待解决统计 + 进度条 + "只看待解决"过滤 + "全部展开 / 折叠 / 智能"三态切换；智能模式（默认）展开需要手动决议的行，折叠自动决议的行
 - **应用合并** 调 `/api/merge/apply`，前端通过 `collectResolutions()` 同时下发单元格选择和行级选择
-- SVN 冲突弹窗的 `.conflict-item` 上对 `.xml` 文件额外渲染**语义合并**按钮；合并完成后自动 `svn resolve --accept working`
+- SVN 冲突弹窗的 `.conflict-item` 上对 `.xml` 文件额外渲染**语义合并**按钮：点击只把该文件标记为 `choice='semantic'`，不再立刻跳走，与 `mine / theirs / skip` 并列。点击"确认更新"后，前端 `state.updateContext` 把所有 `semantic` 文件组成队列，逐个 `setMode('merge')` + `selectFile()` 引导用户决议；每个文件 `applyMerge` 完成后写回工作副本并由后端自动 `svn resolve --accept working`；整个队列结束后统一发一次 `/api/svn/update`，让其他冲突按 mine/theirs/skip 处理、semantic 文件作为 `semantic_files` 走 `--accept working`
+- merge 模式的侧边栏默认只列出当前处于 SVN 冲突状态的 `.xml`（由 `/api/svn/conflicted` 提供），顶部有"只看冲突 / 全部 XML"切换；conflicted 状态显示红色色点
+
+### 运行模式：系统托盘 vs 控制台
+
+- **托盘模式（默认）**：`start.bat` 用 `pythonw` 启动 → 无控制台窗口 → 主线程跑 pystray 图标（菜单：打开浏览器 / 显示日志 / 打开工作目录 / 退出），Flask 在后台线程运行；标准输出/错误重定向到 `logs/server.log`（`RotatingFileHandler`，3 × 1 MB）
+- **控制台模式**：`start_console.bat` 或 `python server.py --console` → 保留原始行为，控制台实时显示日志，托盘不启动；用于开发/排错
+- 打包：`SmartDiff.spec` 与 `build.bat` / `.github/workflows/release.yml` 均使用 `--noconsole` + `--hidden-import pystray._win32 / PIL.Image / PIL.ImageDraw`。当 pystray/PIL 不可用时（如未安装依赖），server 自动降级回控制台模式
 
 **国际化（i18n）**：`static/js/i18n.js` 提供轻量 i18n 框架。`I18N.messages` 存放完整的 `zh` / `en` 双语词典。全局函数 `t(key, ...args)` 根据当前语言查表并执行 `{0}`、`{1}` 占位符替换。页面加载时 `I18N.init()` 从 `localStorage`（`smartdiff_lang`）或 `navigator.language` 检测语言。点击顶栏切换按钮调用 `I18N.setLocale()`，保存偏好后对静态 DOM 应用 `data-i18n` / `data-i18n-title` / `data-i18n-placeholder` 属性，并调用 `reRenderAll()` 重新渲染所有动态 UI。原来的静态常量对象（`ROW_STATUS_LABELS`、`CELL_STATUS_LABELS`）已改为 getter 函数（`getRowStatusLabel`、`getCellStatusLabel`），确保标签在渲染时才求值。
 

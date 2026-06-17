@@ -4,6 +4,25 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## v1.5.0 (2026-06-17)
+
+Rebuilt SVN conflict merge flow + system tray.
+
+**Bug fixes**
+- Files in SVN text-conflict state could not be semantically merged: the working copy was already polluted with `<<<<<<<` markers and `svn cat -r BASE` returned the freshly pulled HEAD rather than the true common ancestor, so the three-way comparison was completely wrong. The app now detects conflicts and reads the `.r<old>` / `.mine` / `.r<new>` sidecar files exposed by `svn info --xml` as BASE / MINE / THEIRS
+- "Semantic merge from the conflict dialog jumped away immediately, so `svn update` was never actually executed and remote-only files stayed on the old revision": semantic merge is now the 4th choice in the conflict dialog (alongside mine/theirs/skip). Pressing "Confirm update" hands the marked files to a managed semantic-merge queue, guides through them one by one, then runs a single consolidated `svn update`; already-merged files are resolved with `--accept working`
+- "After jumping into semantic merge, the top banner / update button got stuck on 'checking' and required a page refresh to re-trigger": every key step in the update flow (and `applyMerge`) now re-checks the remote revision
+- "Semantic merge mode listed every .xml (including non-conflict ones like `battle_act_data`) while not showing the actually-conflicted `item_data`": merge mode now defaults to listing only the .xml files currently in SVN conflict, with an "All XML" toggle. Conflicted files get a red status dot, and `get_modified_files` reports the `conflicted` state
+
+**New features**
+- System-tray runtime: launched via `pythonw` / `--noconsole` by default, the main process runs the pystray icon with menu items: Open browser / Show log / Open workspace / Quit
+- Server output is redirected to `logs/server.log` (rotated 3 × 1 MB); use the new `start_console.bat` (equivalent to `python server.py --console`) when you need a live console
+
+**Internal**
+- New `svn_helper.get_conflict_info()` parses `<conflict><prev-base-file/><prev-wc-file/><cur-base-file/></conflict>` from `svn info --xml`
+- New `/api/svn/conflicted` endpoint; `/api/svn/update` accepts a `semantic_files` parameter
+- New frontend `state.updateContext` queue with `_processNextSemantic` / `_finishSemanticQueue` / `cancelSemanticQueue`
+
 ## v1.4.2 (2026-06-12)
 
 Auto-update restart fix.

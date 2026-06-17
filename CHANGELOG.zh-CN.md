@@ -4,6 +4,25 @@
 
 SmartDiff 的所有重要变更都记录在这里，格式大致遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/) 风格。
 
+## v1.5.0（2026-06-17）
+
+SVN 冲突合并流程重做 + 系统托盘运行。
+
+**问题修复**
+- 修复处于 SVN 文本冲突状态的 .xml 文件无法做语义合并的问题：原先工作副本已被 `<<<<<<<` 标记污染、`svn cat -r BASE` 返回的是更新后的 HEAD 而非真正的祖先版本，三方对比完全错位。现在检测到冲突时改用 `svn info --xml` 暴露的 `.r<old>` / `.mine` / `.r<new>` 三个旁路文件作为 BASE / MINE / THEIRS
+- 修复"在冲突弹窗里点语义合并就跳走，导致 `svn update` 没被真正执行，落后远端的纯远程更新文件停留在旧版本"的问题：语义合并现在是冲突文件的第 4 种选择（与 mine/theirs/skip 并列），点"确认更新"后由更新流程托管成语义合并队列，逐个引导完成后再统一执行一次 svn update，已合并文件以 `--accept working` 解析
+- 修复"语义合并跳走后顶部 banner / 更新按钮卡在'检查中'，需要刷新页面才能再次触发更新"的问题：在更新流程各关键节点 + applyMerge 完成后主动重新检查远端版本
+- 修复"语义合并模式左侧文件列表显示了所有 .xml（包括非冲突的 battle_act_data），却没显示真正处于 SVN 冲突状态的 item_data"的问题：merge 模式默认只显示当前 SVN 冲突的 .xml，提供「全部 XML」切换；冲突文件用红色色点高亮，`get_modified_files` 也会把 conflicted 状态返回
+
+**新功能**
+- 系统托盘运行：默认通过 `pythonw` / `--noconsole` 隐藏控制台窗口，主进程跑 pystray 托盘图标，右键菜单：打开浏览器 / 显示日志 / 打开工作目录 / 退出
+- 服务器输出重定向到 `logs/server.log`（轮转 3 × 1 MB）；想看实时日志可用新增的 `start_console.bat`（等价于 `python server.py --console`）
+
+**内部改进**
+- 后端新增 `svn_helper.get_conflict_info()` 解析 `svn info --xml` 中的 `<conflict><prev-base-file/><prev-wc-file/><cur-base-file/></conflict>`
+- 后端新增 `/api/svn/conflicted` 接口；`/api/svn/update` 接受 `semantic_files` 参数
+- 前端新增 `state.updateContext` 队列、`_processNextSemantic` / `_finishSemanticQueue` / `cancelSemanticQueue` 等
+
 ## v1.4.2（2026-06-12）
 
 自动更新重启修复。

@@ -33,9 +33,11 @@ smartdiff/
 ├── xml_merger.py        # Three-way semantic merge engine (BASE/MINE/THEIRS)
 ├── svn_helper.py        # SVN CLI integration
 ├── updater.py           # In-app auto-update (GitHub Releases + acceleration proxy)
+├── tray.py              # System tray integration (pystray + PIL)
 ├── config.json          # Workspace config (generated at runtime, .gitignored)
 ├── requirements.txt     # Python dependencies
-├── start.bat            # Windows one-click launcher
+├── start.bat            # Windows launcher (tray mode, pythonw silent)
+├── start_console.bat    # Console launcher (--console, for debugging)
 ├── build.bat            # Local PyInstaller build script (kept in sync with release.yml)
 ├── .github/workflows/
 │   ├── test.yml         # CI: full test suite on 3 Python versions
@@ -163,7 +165,8 @@ Wraps the SVN CLI and handles encoding.
 - **URL decoding**: SVN percent-encodes non-ASCII file names in URLs; `get_log` / `get_changed_files_between_revisions` / `get_remote_changed_files` `unquote` them before comparing against local paths, so conflict detection and history filtering work for Chinese file names
 - **Revision filtering**: `--stop-on-copy` avoids the copy-source history; `get_log` additionally filters by path; `get_changed_files_between_revisions` skips files outside the current directory
 - **Binary support**: `_run_raw` / `get_file_at_revision_raw` / `get_base_content_raw` return raw bytes. XML content also goes through the raw path and is decoded by ElementTree per its XML declaration (UTF-16 etc. supported)
-- **`smart_update`** supports three conflict policies: `skip / theirs / mine`; conflict state is detected via `svn status --xml` (`get_conflicted_files`), independent of the svn output locale
+- **`smart_update`** supports four conflict policies: `skip / theirs / mine / semantic`; the first three map to `svn resolve --accept mine-full/theirs-full/mine-full`, while `semantic` maps to `--accept working` (the merge result has already been written to the working copy by `/api/merge/apply`); conflict state is detected via `svn status --xml` (`get_conflicted_files`), independent of the svn output locale
+- **`get_conflict_info(filepath)`** parses the `<conflict type="text">` block exposed by `svn info --xml` and returns the BASE / MINE / THEIRS sidecar file paths (`.r<old>` / `.mine` / `.r<new>`) plus their revisions. This lets `/api/merge/preview|apply` skip the polluted working copy (which contains `<<<<<<<` markers) and read the correct three-way contents directly from the sidecar files. Non-conflict files return `None` and the merge endpoints fall back to the regular `svn cat -r BASE` / working copy / `svn cat HEAD` path
 
 ### `updater.py` — in-app auto-update
 
@@ -188,7 +191,8 @@ Update check / download / self-replace, implemented with the standard library on
 | GET | `/api/svn/modified[-classify]` | Locally modified files; `classify` splits into `data` (real change) vs `meta` (formatting only) |
 | GET | `/api/svn/log`, `/api/svn/dir-log`, `/api/svn/changed-files` | Revision history (file / dir / between two revs) |
 | GET | `/api/svn/remote-revision` | Remote HEAD vs local BASE comparison |
-| POST | `/api/svn/update` | Smart SVN update (`check_only` for conflict probing) |
+| POST | `/api/svn/update` | Smart SVN update (`check_only` for conflict probing; body accepts `skip_files / theirs_files / mine_files / semantic_files`) |
+| GET  | `/api/svn/conflicted` | List workspace files currently in SVN conflict state (used as the merge-mode default filter) |
 | GET | `/api/parse?file=` | Parse a file (auto-detects XML/XLSX) |
 | POST | `/api/diff/{local,revisions,overview,batch}` | Diff endpoints |
 | POST | `/api/merge/preview` | Three-way merge preview (`.xml` only) |
@@ -218,7 +222,14 @@ Every endpoint accepting a `file` parameter goes through `_safe_workspace_path`:
 - Cell badges: `M` (mine, blue), `T` (theirs, purple), `=` (auto_both, green), `✎` (resolved, yellow), `!` (unresolved, red)
 - Toolbar: auto / conflict / unresolved counts + progress bar + "show only unresolved" filter + "expand all / collapse all / smart" tri-state. Smart mode (default) expands rows that need manual resolution and collapses auto-resolved ones
 - **Apply merge** calls `/api/merge/apply` with both cell and row-level selections via `collectResolutions()`
-- The SVN conflict dialog renders an extra **Semantic merge** button on `.conflict-item` for `.xml` files; on merge completion, `svn resolve --accept working` is invoked automatically
+- The SVN conflict dialog renders an extra **Semantic merge** button on `.conflict-item` for `.xml` files: clicking it only marks the file with `choice='semantic'` (sitting alongside `mine / theirs / skip`), no immediate navigation. When the user presses "Confirm update", the frontend's `state.updateContext` builds a queue from every `semantic` file and guides the user through them one by one via `setMode('merge')` + `selectFile()`. Each successful `applyMerge` writes the merged content back and the backend auto-runs `svn resolve --accept working`. After the queue empties, a single `/api/svn/update` consolidates everything (mine/theirs/skip choices + `semantic_files` resolved with `--accept working`)
+- In merge mode, the sidebar defaults to files currently in SVN conflict state (sourced from `/api/svn/conflicted`); a header toggle switches to "All XML"; conflicted entries get a red status dot
+
+### Runtime modes: tray vs console
+
+- **Tray mode (default)**: `start.bat` launches via `pythonw` → no console window → the main thread runs the pystray icon (menu: Open browser / Show log / Open workspace / Quit), Flask runs on a background thread; stdout/stderr are redirected to `logs/server.log` (`RotatingFileHandler`, 3 × 1 MB)
+- **Console mode**: `start_console.bat` or `python server.py --console` → preserves the original behaviour, console shows live logs and the tray icon is skipped; intended for development / troubleshooting
+- Packaging: `SmartDiff.spec`, `build.bat` and `.github/workflows/release.yml` all use `--noconsole` + `--hidden-import pystray._win32 / PIL.Image / PIL.ImageDraw`. When pystray/PIL are unavailable (e.g. missing deps), the server falls back to console mode automatically
 
 **Internationalization (i18n)**: `static/js/i18n.js` provides a lightweight i18n framework. `I18N.messages` holds complete `zh` and `en` dictionaries. The global `t(key, ...args)` function looks up the current locale and performs `{0}`, `{1}` placeholder replacement. On load, `I18N.init()` detects the locale from `localStorage` (`smartdiff_lang`) or `navigator.language`. Clicking the header's language toggle calls `I18N.setLocale()`, which saves the preference, applies `data-i18n` / `data-i18n-title` / `data-i18n-placeholder` attributes on static DOM elements, and calls `reRenderAll()` to regenerate all dynamic UI. Constants that used to be static objects (`ROW_STATUS_LABELS`, `CELL_STATUS_LABELS`) are now getter functions (`getRowStatusLabel`, `getCellStatusLabel`) so labels are evaluated at render time.
 
@@ -263,7 +274,7 @@ Run `build.bat` for a local build, which is equivalent to:
 
 ```bash
 pip install -r requirements.txt pyinstaller
-pyinstaller --onefile --console --add-data "static;static" --name SmartDiff server.py
+pyinstaller --onefile --noconsole --add-data "static;static" --hidden-import pystray._win32 --hidden-import PIL.Image --hidden-import PIL.ImageDraw --name SmartDiff server.py
 ```
 
 The resulting `dist/SmartDiff.exe` runs standalone, no Python required. `config.json` is generated on first launch — don't bundle it.

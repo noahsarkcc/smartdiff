@@ -268,10 +268,10 @@ def get_modified_files(working_dir: str, extensions: tuple = (".xml", ".xlsx", "
                 continue
             status_char = line[0]
             fpath = line[7:].strip()
-            if status_char in ("M", "A", "D", "R") and any(fpath.lower().endswith(e) for e in extensions):
+            if status_char in ("M", "A", "D", "R", "C") and any(fpath.lower().endswith(e) for e in extensions):
                 result.append({
                     "path": fpath,
-                    "status": {"M": "modified", "A": "added", "D": "deleted", "R": "replaced"}.get(status_char, status_char),
+                    "status": {"M": "modified", "A": "added", "D": "deleted", "R": "replaced", "C": "conflicted"}.get(status_char, status_char),
                     "name": os.path.basename(fpath),
                 })
         return result
@@ -287,13 +287,19 @@ def get_modified_files(working_dir: str, extensions: tuple = (".xml", ".xlsx", "
             if wc_status is None:
                 continue
             item_status = wc_status.get("item", "")
-            if item_status in ("modified", "added", "deleted", "replaced"):
-                result.append({
-                    "path": path,
-                    "status": item_status,
-                    "name": os.path.basename(path),
-                    "revision": wc_status.get("revision", ""),
-                })
+            tree_conflicted = wc_status.get("tree-conflicted") == "true"
+            if item_status == "conflicted" or tree_conflicted:
+                effective_status = "conflicted"
+            elif item_status in ("modified", "added", "deleted", "replaced"):
+                effective_status = item_status
+            else:
+                continue
+            result.append({
+                "path": path,
+                "status": effective_status,
+                "name": os.path.basename(path),
+                "revision": wc_status.get("revision", ""),
+            })
         return result
     except ET.ParseError:
         return []
@@ -477,19 +483,81 @@ def get_conflicted_files(working_dir: str) -> list:
     return result
 
 
+def get_conflict_info(filepath: str) -> Optional[dict]:
+    """Inspect SVN conflict metadata for a working-copy file.
+
+    For files currently in text-conflict state, SVN keeps three sidecar files:
+      <name>.r<oldRev>   -- the BASE (common ancestor) at update time
+      <name>.mine        -- the local edits before update
+      <name>.r<newRev>   -- the version fetched from the repository
+    `svn info --xml <file>` exposes the three paths under <conflict>. Returns
+    ``None`` when the file is not in a text conflict state.
+    """
+    rc, out, _err = _run("info", "--xml", filepath, timeout=30)
+    if rc != 0:
+        return None
+    try:
+        root = ET.fromstring(out)
+    except ET.ParseError:
+        return None
+    entry = root.find(".//entry")
+    if entry is None:
+        return None
+    conflict = entry.find("conflict")
+    if conflict is None:
+        return None
+    if (conflict.get("type") or "").lower() != "text":
+        return None
+
+    base_file = (conflict.findtext("prev-base-file") or "").strip()
+    mine_file = (conflict.findtext("prev-wc-file") or "").strip()
+    theirs_file = (conflict.findtext("cur-base-file") or "").strip()
+    if not (base_file and mine_file and theirs_file):
+        return None
+
+    base_rev = None
+    theirs_rev = None
+    for ver in conflict.findall("version"):
+        side = ver.get("side")
+        rev = ver.get("revision")
+        try:
+            rev_int = int(rev) if rev else None
+        except ValueError:
+            rev_int = None
+        if side == "source-left":
+            base_rev = rev_int
+        elif side == "source-right":
+            theirs_rev = rev_int
+
+    return {
+        "is_text_conflict": True,
+        "base_file": base_file,
+        "mine_file": mine_file,
+        "theirs_file": theirs_file,
+        "base_rev": base_rev,
+        "theirs_rev": theirs_rev,
+    }
+
+
 # Update output item lines look like "U    path" / "A    path" / "UU   path".
 # Excludes locale-independent noise such as "Updating '.':" / "At revision N.".
 _UPDATE_ITEM_RE = re.compile(r"^[ADUCGER][ ADUCGEB]?\s{2,}\S")
 
 
-def smart_update(path: str, skip_files: list, theirs_files: list, mine_files: list) -> dict:
+def smart_update(path: str, skip_files: list, theirs_files: list,
+                 mine_files: list, semantic_files: list = None) -> dict:
     """Execute svn update, handling conflicts per user choice.
 
     - skip_files: files to keep at current state (resolve as mine after update)
     - theirs_files: files to accept server version
     - mine_files: files to keep local modifications
+    - semantic_files: files whose merge result has already been written to the
+                     working copy by /api/merge/apply; here we just make sure
+                     SVN considers them resolved (accept working).
     """
-    results = {"updated": 0, "skipped": [], "theirs": [], "mine": [], "errors": []}
+    semantic_files = semantic_files or []
+    results = {"updated": 0, "skipped": [], "theirs": [],
+               "mine": [], "semantic": [], "errors": []}
 
     rc, out, err = _run("update", "--accept", "postpone", path, timeout=300)
     if rc != 0 and not get_conflicted_files(path):
@@ -515,6 +583,11 @@ def smart_update(path: str, skip_files: list, theirs_files: list, mine_files: li
         fpath = os.path.join(path, f)
         _run("resolve", "--accept", "mine-full", fpath)
         results["skipped"].append(f)
+
+    for f in semantic_files:
+        fpath = os.path.join(path, f)
+        _run("resolve", "--accept", "working", fpath)
+        results["semantic"].append(f)
 
     return results
 

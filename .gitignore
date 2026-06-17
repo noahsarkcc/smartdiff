@@ -9,6 +9,7 @@ build/
 # Runtime config (user-specific)
 config.json
 workspace/
+logs/
 
 # IDE
 .cursor/

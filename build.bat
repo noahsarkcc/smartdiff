@@ -27,12 +27,16 @@ if exist SmartDiff.spec del SmartDiff.spec
 
 REM Build (keep in sync with .github/workflows/release.yml)
 REM All local modules (xml_parser, xml_differ, xml_merger, xlsx_parser,
-REM svn_helper, updater) are top-level imports of server.py, so PyInstaller
-REM bundles them automatically.
+REM svn_helper, updater, tray) are top-level imports of server.py, so
+REM PyInstaller bundles them automatically. pystray's platform backend is
+REM picked dynamically and must be declared as a hidden import.
 echo [3/3] Building executable...
-pyinstaller --noconfirm --onefile --console ^
+pyinstaller --noconfirm --onefile --noconsole ^
     --name SmartDiff ^
     --add-data "static;static" ^
+    --hidden-import pystray._win32 ^
+    --hidden-import PIL.Image ^
+    --hidden-import PIL.ImageDraw ^
     server.py
 
 if %errorlevel% neq 0 (
