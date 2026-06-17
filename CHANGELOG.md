@@ -22,6 +22,7 @@ Rebuilt SVN conflict merge flow + system tray.
 - New `svn_helper.get_conflict_info()` parses `<conflict><prev-base-file/><prev-wc-file/><cur-base-file/></conflict>` from `svn info --xml`
 - New `/api/svn/conflicted` endpoint; `/api/svn/update` accepts a `semantic_files` parameter
 - New frontend `state.updateContext` queue with `_processNextSemantic` / `_finishSemanticQueue` / `cancelSemanticQueue`
+- Fixed tray-mode Flask startup crash: `_StreamToLogger.write` now accepts bytes / bytearray and exposes `encoding` / `isatty` / `fileno` / `writelines`, so `click.echo` no longer hits a `TypeError` when writing the Flask startup banner (which otherwise killed the background Flask thread silently — the tray icon stayed up but the port never opened)
 
 ## v1.4.2 (2026-06-12)
 

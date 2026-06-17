@@ -1094,7 +1094,16 @@ def _log_path() -> str:
 
 
 class _StreamToLogger:
-    """File-like object that forwards writes to a logger (for stdout/stderr)."""
+    """File-like object that forwards writes to a logger (for stdout/stderr).
+
+    Accepts both ``str`` and ``bytes`` payloads because some libraries (click,
+    werkzeug) write bytes directly when the stream's ``buffer`` attribute is
+    absent. Mimics text-mode stdout so callers that probe ``encoding`` /
+    ``isatty()`` keep working.
+    """
+
+    encoding = "utf-8"
+    errors = "replace"
 
     def __init__(self, logger, level=logging.INFO):
         self._logger = logger
@@ -1104,16 +1113,33 @@ class _StreamToLogger:
     def write(self, msg):
         if not msg:
             return
+        if isinstance(msg, (bytes, bytearray)):
+            try:
+                msg = bytes(msg).decode(self.encoding, errors=self.errors)
+            except Exception:
+                msg = str(msg)
+        elif not isinstance(msg, str):
+            msg = str(msg)
         self._buf += msg
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
             if line.strip():
                 self._logger.log(self._level, line)
 
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
     def flush(self):
         if self._buf.strip():
             self._logger.log(self._level, self._buf.strip())
         self._buf = ""
+
+    def isatty(self):
+        return False
+
+    def fileno(self):
+        raise OSError("no fileno (logger stream)")
 
 
 def _configure_file_logging(log_path: str, redirect_stdio: bool):
