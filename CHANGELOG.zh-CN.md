@@ -28,6 +28,7 @@ SVN 冲突合并流程重做 + 系统托盘运行。
 - 修复日志被 `[SVN] Using: svn` 刷屏：原先 `is_available()` 每次被调用（前端轮询 / 各 API 入口共 15 处）都打印一次，现在用 `_svn_announced` 标志只在首次探测成功时打印一次
 - 修复语义合并 apply 后弹窗显示「0 项决议」让人误以为没合并：原先弹窗的数字是「用户在界面上点过的 resolutions 条数」，不包含 `three_way_diff` 自动决议的非冲突合并（如 THEIRS 单方新增 / 单方修改）。后端 `/api/merge/apply` 新增 `total_changes` 字段统计真正写入文件的行级 ops 总数，前端弹窗改用这个数字；文案同步从「决议」改为「变更」
 - 语义合并视图收紧为「只显示需要处理的内容」：左侧文件列表移除「全部 XML」补救入口，永远只列 SVN 冲突文件（避免误点本地仅 modified 的文件后看到几百行 `added_mine` 空操作）；右上「只看待解决」开关默认勾选；新增 `isLocalNoiseRow` 永久屏蔽 4 种纯本地噪音行（`added_mine` / `added_both_same` / `removed_mine` / `removed_both`），取消勾选「只看待解决」时也只看「远端带来的变化 + 已决议项」
+- 语义合并 cell 决议按钮解锁：以前只有 `conflict` 状态的 cell 才能点「保留我的 / 用远端 / 自定义」，`auto_mine` / `auto_theirs` / `auto_both` 三种"自动决议"状态都锁死了。现在三种 auto 状态也显示决议按钮（默认值不变，按钮 selected 高亮当前用的是哪一边），用户取消「只看待解决」后可逐个核对并 override 自动决议——主要防止本地有未提交脏改时 `auto_mine` 把远端正确值默默丢掉。`collectResolutions` 通过新的 `isCellOverridden` 判断 cell 是否被用户改动过默认值，只发送被改动的 auto-cell 到 `/api/merge/apply`；README 中英补充 BASE / 本地 / 远端 含义 + 自动决议规则小节
 
 ## v1.4.2（2026-06-12）
 

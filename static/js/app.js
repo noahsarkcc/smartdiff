@@ -1952,6 +1952,23 @@ async function applyMerge() {
   }
 }
 
+// Returns true when the user has actively chosen a value different from the
+// auto-resolution default for an auto_* cell, or any explicit choice for a
+// conflict cell. Used to decide which cells to send to /api/merge/apply.
+function isCellOverridden(cell) {
+  if (cell.resolved === null || cell.resolved === undefined) return false;
+  if (cell.status === "conflict") return true;
+  // For auto_* cells, the default resolved value is set by three_way_diff
+  // at preview time. If the user picks a different button, cell.resolved
+  // diverges from that default and we must forward the choice to the backend.
+  let def;
+  if (cell.status === "auto_mine") def = cell.mine;
+  else if (cell.status === "auto_theirs") def = cell.theirs;
+  else if (cell.status === "auto_both") def = cell.mine; // mine === theirs in auto_both
+  else return false;
+  return cell.resolved !== def;
+}
+
 function collectResolutions() {
   const md = state.mergeData;
   const out = [];
@@ -1975,17 +1992,16 @@ function collectResolutions() {
       if (rowKeepsCells(row)) {
         for (const col in row.cells) {
           const c = row.cells[col];
-          if (c.status === "conflict" && c.resolved !== null) {
-            let choice = "custom";
-            let value = c.resolved;
-            if (c.resolved === c.mine) choice = "mine";
-            else if (c.resolved === c.theirs) choice = "theirs";
-            else if (c.resolved === c.base) choice = "base";
-            out.push({
-              sheet: sheetName, row_key: row.row_key, col: col,
-              choice: choice, value: value,
-            });
-          }
+          if (!isCellOverridden(c)) continue;
+          let choice = "custom";
+          let value = c.resolved;
+          if (c.resolved === c.mine) choice = "mine";
+          else if (c.resolved === c.theirs) choice = "theirs";
+          else if (c.resolved === c.base) choice = "base";
+          out.push({
+            sheet: sheetName, row_key: row.row_key, col: col,
+            choice: choice, value: value,
+          });
         }
       }
     }
@@ -2366,7 +2382,8 @@ function renderMergeCell(sheetName, row, col, cell) {
   }
 
   let btns = "";
-  if (isConflict) {
+  const canOverride = ["conflict", "auto_mine", "auto_theirs", "auto_both"].includes(cell.status);
+  if (canOverride) {
     const sel = (choice) => {
       let v = "";
       if (choice === "mine") v = cell.mine;

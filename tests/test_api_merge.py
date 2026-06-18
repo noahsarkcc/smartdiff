@@ -221,6 +221,38 @@ def test_apply_total_changes_includes_auto_merge(client, workdir, fpath):
         f"total_changes={body['total_changes']} 应大于 applied={body['applied']}"
 
 
+@t("apply：用户可 override auto_mine cell 到 theirs 值")
+@with_workspace
+def test_apply_auto_mine_cell_overridden(client, workdir, fpath):
+    """1005 行的 B 列「名称」：BASE='双方改不同列' == THEIRS='双方改不同列' != MINE='本地改名称'。
+    这是 auto_mine（远端没改、本地改了）。默认决议是 mine='本地改名称'。
+    现在前端允许用户主动 override：传 {col:'B', choice:'theirs'} 想改回远端原值。
+    验证 apply 后 1005.B 写入的是 '双方改不同列' 而不是 '本地改名称'。
+    """
+    resolutions = [
+        # 必填的"真正冲突"决议（沿用其他用例的最小集）
+        {"sheet": "Items", "row_key": "1006", "col": "B", "choice": "mine"},
+        {"sheet": "Items", "row_key": "1010", "choice": "accept_theirs"},
+        {"sheet": "Items", "row_key": "1011", "choice": "accept_theirs_delete"},
+        {"sheet": "Items", "row_key": "2004", "choice": "accept_theirs"},
+        # 关键：override auto_mine cell
+        {"sheet": "Items", "row_key": "1005", "col": "B", "choice": "theirs"},
+    ]
+    r = client.post("/api/merge/apply", json={
+        "file": "items.xml",
+        "resolutions": resolutions,
+    })
+    assert r.status_code == 200, f"body={r.get_data(as_text=True)}"
+    assert r.get_json()["ok"] is True
+
+    parsed = xml_parser.parse_file(fpath)
+    rows = parsed["sheets"]["Items"]["rows"]
+    by_id = {r["cells"]["A"]: r["cells"] for r in rows[1:] if r["cells"].get("A")}
+    # 关键断言：1005.B 是 theirs 的值（远端原值），不是 mine 的默认 auto 值
+    assert by_id["1005"]["B"] == "双方改不同列", \
+        f"override auto_mine 失败：1005.B={by_id['1005']['B']!r}，期望 '双方改不同列'"
+
+
 @t("apply：mark_resolved=true 时尝试 svn resolve（mocked）")
 @with_workspace
 def test_apply_mark_resolved(client, workdir, fpath):
@@ -468,6 +500,7 @@ def main():
     test_apply_unresolved()
     test_apply_full()
     test_apply_total_changes_includes_auto_merge()
+    test_apply_auto_mine_cell_overridden()
     test_apply_mark_resolved()
     test_apply_rejects_xlsx()
     test_apply_in_svn_conflict_uses_mine_template()

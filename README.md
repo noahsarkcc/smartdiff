@@ -133,12 +133,30 @@ View file content as tables, with multi-sheet switching.
 
 ### Semantic merge mode
 
-After switching to **Semantic merge**, the sidebar shows `.xml` files only. Once you pick a file, the tool reads `BASE` and the remote revision from SVN and performs a three-way comparison against your working copy:
+After switching to **Semantic merge**, the sidebar shows the `.xml` files currently in SVN conflict only. Once you pick a file, the tool reads `BASE` and the remote revision from SVN and performs a three-way comparison against your working copy:
 
 - Single-side edits, both-side identical edits, and edits to different columns are resolved automatically
 - The same cell changed to different values, delete-vs-edit, and both-side additions with the same ID but different content require manual resolution
 - Click **Apply merge & save** to write the result back to the local `.xml`
 - If entered from the SVN conflict dialog, saving automatically attempts to mark the SVN conflict as resolved
+
+#### Three-way semantics
+
+- **BASE**: the server revision you had before this update (SVN's `.r<oldRev>` sidecar)
+- **Mine**: your working copy before this update, including all uncommitted edits (SVN's `.mine`)
+- **Theirs**: the latest server revision pulled in this update (SVN's `.r<newRev>`)
+
+#### Auto-resolution rules (per-cell three-way comparison)
+
+- **Auto · mine**: theirs didn't touch this cell, you did → defaults to keeping yours
+- **Auto · theirs**: you didn't touch this cell, theirs changed it → defaults to using theirs
+- **Auto · both**: both sides changed to the same value → no ambiguity
+- **Conflict**: all three sides differ → manual resolution required
+
+Every "auto" decision is overridable from the merge view (Keep mine / Use theirs / Custom); defaults are never enforced.
+
+> "Unresolved only" is on by default, hiding auto-resolved items; uncheck it to review and override them.
+> Four "no-remote-change" row classes (`added_mine` / `added_both_same` / `removed_mine` / `removed_both`) are always hidden as pure local noise.
 
 ### SVN update
 
