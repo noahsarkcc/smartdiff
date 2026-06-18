@@ -74,6 +74,14 @@ def start_tray(port: int, log_path: str, workspace_resolver, shutdown_fn,
             pass
 
     def _open_log(_icon=None, _item=None):
+        # Prefer the in-app /log viewer: newest-first, auto-refresh, dark.
+        # Fall back to the raw file (Notepad / xdg-open) only when the
+        # browser cannot be launched.
+        try:
+            webbrowser.open(f"http://localhost:{port}/log")
+            return
+        except Exception:
+            pass
         try:
             if log_path and os.path.isfile(log_path):
                 if os.name == "nt":

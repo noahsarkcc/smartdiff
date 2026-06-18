@@ -482,6 +482,22 @@ def test_idempotent_after_apply(client, workdir, fpath):
     assert s["conflicts"] == 0, f"二次 preview 仍有冲突: {s}"
 
 
+# ── /log smoke test ────────────────────────────────────
+
+
+@t("/log: 缺失日志文件也返回 200 HTML")
+def test_log_view_no_file():
+    """The /log route should serve a placeholder HTML page even when the
+    log file does not exist yet (e.g. fresh install, console-only run)."""
+    client = server.app.test_client()
+    with patch("server._log_path", return_value=os.path.join(tempfile.gettempdir(),
+                                                              "smartdiff-no-such-file.log")):
+        r = client.get("/log")
+    assert r.status_code == 200, f"unexpected status {r.status_code}"
+    ctype = r.headers.get("Content-Type", "")
+    assert "text/html" in ctype, f"unexpected content-type {ctype!r}"
+
+
 # ── Main ────────────────────────────────────────────────
 
 
@@ -517,6 +533,9 @@ def main():
 
     section("5. 幂等性")
     test_idempotent_after_apply()
+
+    section("6. /log 查看器")
+    test_log_view_no_file()
 
     print()
     total = _passed + _failed

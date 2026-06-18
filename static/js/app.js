@@ -168,8 +168,30 @@ function renderWorkspaceSelect() {
   ).join("");
 }
 
+function showWsSwitchOverlay(title) {
+  const el = document.getElementById("wsSwitchOverlay");
+  if (!el) return;
+  const titleEl = document.getElementById("wsSwitchTitle");
+  const stepEl = document.getElementById("wsSwitchStep");
+  if (titleEl) titleEl.textContent = title || "";
+  if (stepEl) stepEl.textContent = "";
+  el.style.display = "flex";
+}
+function setWsSwitchStep(step) {
+  const stepEl = document.getElementById("wsSwitchStep");
+  if (stepEl) stepEl.textContent = step || "";
+}
+function hideWsSwitchOverlay() {
+  const el = document.getElementById("wsSwitchOverlay");
+  if (el) el.style.display = "none";
+}
+
 async function switchWorkspace(idx) {
+  const cfg = state.config || {};
+  const wsName = (cfg.workspaces && cfg.workspaces[idx] && cfg.workspaces[idx].name) || "";
+  showWsSwitchOverlay(t('workspace.switching', wsName));
   try {
+    setWsSwitchStep(t('workspace.stepRequest'));
     await api("/api/workspaces/switch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -184,13 +206,21 @@ async function switchWorkspace(idx) {
     state.modifiedClassify = {};
     document.getElementById("updateBanner").style.display = "none";
     _bannerDismissed = false;
+
+    setWsSwitchStep(t('workspace.stepLoadFiles'));
     state.config = await api("/api/config");
     renderHeader();
     await loadFiles();
+
     if (state.config.svn_available) {
-      loadModifiedFiles();
-      loadModifiedClassify();
-      loadConflictedFiles();
+      setWsSwitchStep(t('workspace.stepLoadSvn'));
+      // allSettled so one slow / failing SVN call doesn't block the overlay
+      await Promise.allSettled([
+        loadModifiedFiles(),
+        loadModifiedClassify(),
+        loadConflictedFiles(),
+      ]);
+      // remote version check is a background poll; don't await
       startRemoteVersionCheck();
     } else {
       state.conflictedFiles = [];
@@ -202,6 +232,8 @@ async function switchWorkspace(idx) {
     renderContent();
   } catch (e) {
     alert(t('workspace.switchFailed', e.message));
+  } finally {
+    hideWsSwitchOverlay();
   }
 }
 

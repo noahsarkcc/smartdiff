@@ -29,6 +29,8 @@ SVN 冲突合并流程重做 + 系统托盘运行。
 - 修复语义合并 apply 后弹窗显示「0 项决议」让人误以为没合并：原先弹窗的数字是「用户在界面上点过的 resolutions 条数」，不包含 `three_way_diff` 自动决议的非冲突合并（如 THEIRS 单方新增 / 单方修改）。后端 `/api/merge/apply` 新增 `total_changes` 字段统计真正写入文件的行级 ops 总数，前端弹窗改用这个数字；文案同步从「决议」改为「变更」
 - 语义合并视图收紧为「只显示需要处理的内容」：左侧文件列表移除「全部 XML」补救入口，永远只列 SVN 冲突文件（避免误点本地仅 modified 的文件后看到几百行 `added_mine` 空操作）；右上「只看待解决」开关默认勾选；新增 `isLocalNoiseRow` 永久屏蔽 4 种纯本地噪音行（`added_mine` / `added_both_same` / `removed_mine` / `removed_both`），取消勾选「只看待解决」时也只看「远端带来的变化 + 已决议项」
 - 语义合并 cell 决议按钮解锁：以前只有 `conflict` 状态的 cell 才能点「保留我的 / 用远端 / 自定义」，`auto_mine` / `auto_theirs` / `auto_both` 三种"自动决议"状态都锁死了。现在三种 auto 状态也显示决议按钮（默认值不变，按钮 selected 高亮当前用的是哪一边），用户取消「只看待解决」后可逐个核对并 override 自动决议——主要防止本地有未提交脏改时 `auto_mine` 把远端正确值默默丢掉。`collectResolutions` 通过新的 `isCellOverridden` 判断 cell 是否被用户改动过默认值，只发送被改动的 auto-cell 到 `/api/merge/apply`；README 中英补充 BASE / 本地 / 远端 含义 + 自动决议规则小节
+- 托盘「显示日志」改用浏览器打开内置的 `/log` 查看器：最新条目排在顶部、5 秒自动刷新、深色等宽字体顶栏带文件路径 / 行数 / 字节数 / 最后修改时间，比记事本更适合实时观察。`webbrowser.open` 失败时仍 fallback 到原有的记事本 / xdg-open 方式
+- 切换工作区新增全屏遮罩进度条：分「提交切换请求 → 加载文件列表 → 检查 SVN 状态」三个步骤展示，避免大仓库切换时用户误以为已经切完。SVN 三个 load（modified / classify / conflicted）改用 `Promise.allSettled` 等待全部完成再隐藏遮罩，单个 SVN 调用失败也不会卡住进度条
 
 ## v1.4.2（2026-06-12）
 

@@ -253,6 +253,10 @@ const I18N_MESSAGES = {
 
     'workspace.switchFailed': '切换工作区失败: {0}',
     'workspace.addFailed': '添加工作区失败: {0}',
+    'workspace.switching': '切换到 "{0}" 中...',
+    'workspace.stepRequest': '提交切换请求...',
+    'workspace.stepLoadFiles': '加载文件列表...',
+    'workspace.stepLoadSvn': '检查 SVN 状态...',
     'dirBrowser.title': '选择工作区目录',
     'dirBrowser.upTitle': '返回上级目录',
     'dirBrowser.pathPlaceholder': '输入路径...',
@@ -521,6 +525,10 @@ const I18N_MESSAGES = {
 
     'workspace.switchFailed': 'Failed to switch workspace: {0}',
     'workspace.addFailed': 'Failed to add workspace: {0}',
+    'workspace.switching': 'Switching to "{0}"...',
+    'workspace.stepRequest': 'Submitting switch request...',
+    'workspace.stepLoadFiles': 'Loading file list...',
+    'workspace.stepLoadSvn': 'Checking SVN status...',
     'dirBrowser.title': 'Select workspace directory',
     'dirBrowser.upTitle': 'Go up one level',
     'dirBrowser.pathPlaceholder': 'Enter path...',

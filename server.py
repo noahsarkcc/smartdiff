@@ -8,6 +8,8 @@ import os
 import sys
 import json
 import time
+import html
+import datetime
 import logging
 import webbrowser
 import threading
@@ -273,6 +275,57 @@ def _normalize_svn_item(item: dict, work_dir: str) -> dict:
 @app.route("/")
 def index():
     return send_from_directory(os.path.join(_resource_dir(), "static"), "index.html")
+
+
+@app.route("/log")
+def view_log():
+    """Render the rotating server log in a dark, auto-refreshing web page.
+
+    Newest lines first, 5s meta-refresh. Replaces the legacy "open file in
+    Notepad" path so users running in tray mode can watch the log live in a
+    browser tab.
+    """
+    path = _log_path()
+    if not os.path.isfile(path):
+        body = ("<!doctype html><meta charset='utf-8'><title>SmartDiff \u65e5\u5fd7</title>"
+                f"<body style='background:#0d1117;color:#c9d1d9;font:13px monospace;padding:16px'>"
+                f"\u65e5\u5fd7\u6587\u4ef6\u4e0d\u5b58\u5728\uff1a{html.escape(path)}</body>")
+        return (body, 200, {"Content-Type": "text/html; charset=utf-8"})
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError as e:
+        body = ("<!doctype html><meta charset='utf-8'><title>SmartDiff \u65e5\u5fd7</title>"
+                f"<body style='background:#0d1117;color:#c9d1d9;font:13px monospace;padding:16px'>"
+                f"\u8bfb\u53d6\u65e5\u5fd7\u5931\u8d25\uff1a{html.escape(str(e))}</body>")
+        return (body, 500, {"Content-Type": "text/html; charset=utf-8"})
+    lines.reverse()
+    rows = "\n".join(html.escape(l) for l in lines)
+    size = os.path.getsize(path)
+    mtime = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S")
+    page = (
+        "<!doctype html><html lang=\"zh-CN\"><head>"
+        "<meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"5\">"
+        "<title>SmartDiff \u65e5\u5fd7</title><style>"
+        "html,body{margin:0;padding:0;background:#0d1117;color:#c9d1d9;"
+        "font:13px/1.5 Consolas,Menlo,\"Cascadia Mono\",monospace;}"
+        "header{position:sticky;top:0;background:#161b22;padding:8px 14px;"
+        "border-bottom:1px solid #30363d;display:flex;gap:16px;align-items:center;"
+        "flex-wrap:wrap;}"
+        "header b{color:#fff;}"
+        "header .path{color:#8b949e;}"
+        "header .hint{color:#6e7681;font-size:11px;margin-left:auto;}"
+        "pre{white-space:pre-wrap;word-break:break-all;margin:0;padding:8px 14px;}"
+        "</style></head><body>"
+        "<header>"
+        "<b>SmartDiff \u65e5\u5fd7</b>"
+        f"<span class=\"path\">{html.escape(path)}</span>"
+        f"<span>{len(lines)} \u884c \u00b7 {size:,} \u5b57\u8282 \u00b7 \u6700\u540e\u4fee\u6539 {html.escape(mtime)}</span>"
+        "<span class=\"hint\">\u6700\u65b0\u65f6\u95f4\u5728\u9876 \u00b7 5 \u79d2\u81ea\u52a8\u5237\u65b0</span>"
+        "</header>"
+        f"<pre>{rows}</pre></body></html>"
+    )
+    return (page, 200, {"Content-Type": "text/html; charset=utf-8"})
 
 
 @app.route("/api/config")
