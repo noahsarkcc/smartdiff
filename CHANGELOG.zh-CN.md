@@ -33,6 +33,10 @@ SVN 冲突合并流程重做 + 系统托盘运行。
 - 切换工作区新增全屏遮罩进度条：分「提交切换请求 → 加载文件列表 → 检查 SVN 状态」三个步骤展示，避免大仓库切换时用户误以为已经切完。SVN 三个 load（modified / classify / conflicted）改用 `Promise.allSettled` 等待全部完成再隐藏遮罩，单个 SVN 调用失败也不会卡住进度条
 - 修复语义合并队列中「格式改但无语义差异」文件卡住用户的问题：当文件只是格式 / 空白 / 属性顺序差异，三方对比为 0 冲突 0 自动合并、每个 sheet 都「无任何变更」时，原本顶部 banner 文案「正在合并 X (1/1)…」带省略号让人误以为程序还在跑、不敢动；现在 banner 改为行动式「请处理：X（第 1/N 个）— 完成后点工具栏右上『应用合并并保存』继续」，内容区在 sheet 之前插入显眼的「三方对比无语义差异」绿色引导卡，自带「确认无差异，完成此文件」主按钮，一键完成 svn resolve + 推进队列
 - 后端关键 API 补 INFO/WARNING 业务日志，方便从 `/log` 查看器回溯定位：`/api/workspaces/switch|add|remove` 记录切目录 / 工作区增删，`/api/merge/preview` 记录文件 + from_svn_conflict + auto/conflicts 计数，`/api/merge/apply` 记录 resolutions / total_changes / svn_resolved，`/api/merge/svn-mark-resolved` 记录 resolve 成败，`/api/svn/update` 记录入口（skip/theirs/mine/semantic 计数）与出口（updated/errors 计数）。异常分支统一 WARNING（含 file + err 摘要前 200 字符）
+- **关键数据损坏修复**：修复语义合并队列结束后整目录 `svn update` 把 `<<<<<<<` / `=======` / `>>>>>>>` 标记冻进工作副本的 bug。原流程是先 `svn update --accept postpone <整目录>` 再对 semantic_files 跑 `svn resolve --accept working`，但 SVN 会重新对 semantic_files 做三方 merge（BASE=旧版本 vs HEAD vs working）再次产生冲突标记，随后 `resolve --accept working` 接受当前工作副本时**不会清理冲突标记**（这是 SVN 设计语义），导致带标记的损坏 XML 被 SVN 认定为"已解决"。新流程：在整目录 `svn update` **之前**对每个 semantic_file 跑 `svn resolve --accept working` + `svn update --accept working <fpath>`，把 BASE 单独推到 HEAD，整目录 update 不再 touch 它们
+- 前端 applyMerge 加 reentry guard：`state.mergeApplyInFlight` + 按钮 disabled + 成功后立即清空 `state.mergeData / activeSheet`，避免队列前进 / svn update 期间用户重复点击触发对已被改动文件的二次 apply
+- 后端 `_resolve_merge_sources` fallback 路径检测工作副本是否含 `<<<<<<<` / `=======` / `>>>>>>>` 任一冲突标记前缀，含则报"工作副本文件含有 SVN 冲突标记，请手动清理或 `svn revert` 后重做"清晰错误，而不是让 ElementTree 抛 "not well-formed (invalid token): line 3, column 1"。SVN 旁路 `.mine` 也加上同样防御性检查
+- 新增 2 个回归测试覆盖这条数据损坏路径：`test_smart_update_semantic_files_promoted_first` 验证 semantic_files 必须在整目录 update 之前 resolve + update --accept working；`test_apply_rejects_poisoned_working_copy` 验证含冲突标记的工作副本被 apply 时报中文清晰错误而非 ParseError。共 22/22 测试通过
 
 ## v1.4.2（2026-06-12）
 

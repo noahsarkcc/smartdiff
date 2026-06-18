@@ -482,6 +482,104 @@ def test_idempotent_after_apply(client, workdir, fpath):
     assert s["conflicts"] == 0, f"二次 preview 仍有冲突: {s}"
 
 
+# ── 数据损坏防护 ────────────────────────────────────
+
+
+@t("smart_update: semantic_files 必须先于整目录 update 单独 update --accept working")
+def test_smart_update_semantic_files_promoted_first():
+    """回归 18:51 那次数据损坏：
+
+    svn_helper.smart_update 必须先对每个 semantic_file 跑
+    `resolve --accept working` + `update --accept working <fpath>` 把 BASE 推到
+    HEAD，再跑整目录 `update --accept postpone`。如果顺序反了，整目录 update
+    会重新触发冲突并把 `<<<<<<<` 标记写进工作副本，后续 resolve --accept
+    working 会把损坏内容固化为 SVN 认可的"已解决"状态。
+    """
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    try:
+        calls = []
+
+        def _fake_run(*args, **kwargs):
+            # _run 的第一个 positional 是 svn 子命令名
+            calls.append(args)
+            return (0, "", "")
+
+        with patch.object(svn_helper, "_run", side_effect=_fake_run), \
+             patch.object(svn_helper, "get_conflicted_files", return_value=[]):
+            svn_helper.smart_update(workdir, [], [], [], ["a.xml", "b.xml"])
+
+        cmds = [a[0] for a in calls if a]
+        # 必须有两个 semantic_files × (resolve, update) = 至少 4 条命令在
+        # 整目录 "update --accept postpone <workdir>" 之前
+        idx_dir_update = None
+        for i, a in enumerate(calls):
+            if (len(a) >= 4 and a[0] == "update"
+                    and a[1] == "--accept" and a[2] == "postpone"):
+                idx_dir_update = i
+                break
+        assert idx_dir_update is not None, (
+            "smart_update never ran the directory-wide `svn update --accept postpone`")
+
+        prefix = calls[:idx_dir_update]
+        prefix_cmds = [(a[0], a[2] if len(a) >= 3 else None) for a in prefix]
+        # 顺序：("resolve", "working"), ("update", "working") × 2
+        expected = [("resolve", "working"), ("update", "working")] * 2
+        assert prefix_cmds == expected, (
+            f"semantic_files must be processed before the directory update, "
+            f"got prefix={prefix_cmds!r}")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@t("apply: 工作副本含 SVN 冲突标记时报清晰错误而不是 ET ParseError")
+def test_apply_rejects_poisoned_working_copy():
+    """回归 18:51:14 那次崩溃：
+
+    一次失败的语义合并 + svn update 把 `<<<<<<<` / `>>>>>>>` 标记冻进了
+    工作副本，但 SVN 自己已经把文件标记为 resolved（旁路 .mine 文件被清理）。
+    再次调用 /api/merge/apply 时 _resolve_merge_sources 走 fallback 路径
+    读工作副本，ET 解析直接挂在 "not well-formed line 3 column 1"。
+
+    应当在 ValueError 阶段给出可读消息（含"冲突标记"关键词）。
+    """
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    try:
+        fpath = os.path.join(workdir, "items.xml")
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write("<?xml version=\"1.0\"?>\n"
+                    "<Workbook>\n"
+                    "<<<<<<< .mine\n"
+                    "  <Row><Cell>A</Cell></Row>\n"
+                    "=======\n"
+                    "  <Row><Cell>B</Cell></Row>\n"
+                    ">>>>>>> .r42\n"
+                    "</Workbook>\n")
+
+        client = server.app.test_client()
+        with patch.object(server, "_get_work_dir", return_value=workdir), \
+             patch.object(svn_helper, "is_available", return_value=True), \
+             patch.object(svn_helper, "get_conflict_info", return_value=None), \
+             patch.object(svn_helper, "get_base_content_raw",
+                          return_value=b"<?xml version=\"1.0\"?><Workbook/>"), \
+             patch.object(svn_helper, "get_svn_info",
+                          return_value={"url": "file:///x", "revision": "1"}), \
+             patch.object(svn_helper, "get_remote_head_revision", return_value=2), \
+             patch.object(svn_helper, "get_file_at_revision_raw",
+                          return_value=b"<?xml version=\"1.0\"?><Workbook/>"):
+            r = client.post("/api/merge/apply", json={
+                "file": "items.xml",
+                "resolutions": [],
+            })
+
+        assert r.status_code == 500, f"unexpected status {r.status_code}"
+        body = r.get_json()
+        err = (body or {}).get("error", "")
+        assert "\u51b2\u7a81\u6807\u8bb0" in err, (
+            f"error message should mention conflict markers, got: {err!r}")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 # ── /log smoke test ────────────────────────────────────
 
 
@@ -534,7 +632,11 @@ def main():
     section("5. 幂等性")
     test_idempotent_after_apply()
 
-    section("6. /log 查看器")
+    section("6. 数据损坏防护")
+    test_smart_update_semantic_files_promoted_first()
+    test_apply_rejects_poisoned_working_copy()
+
+    section("7. /log 查看器")
     test_log_view_no_file()
 
     print()

@@ -1934,6 +1934,12 @@ async function doMergePreview() {
 
 async function applyMerge() {
   if (!state.mergeData || !state.selectedFile) return;
+  // Reentry guard: once apply is in flight, ignore further clicks (the noop
+  // banner button and the toolbar button can both fire applyMerge() while
+  // the previous request, svn update, or queue advance is still running -
+  // hitting it twice on the same file makes the second call read a
+  // poisoned working copy after svn update has injected conflict markers).
+  if (state.mergeApplyInFlight) return;
   if (countRemainingConflicts() > 0) {
     alert(t('merge.unresolvedAlert'));
     return;
@@ -1944,6 +1950,10 @@ async function applyMerge() {
   const currentFile = state.selectedFile;
   const inQueue = !!(state.updateContext && state.updateContext.semanticQueue.length > 0
                      && state.updateContext.semanticQueue[0] === currentFile);
+
+  state.mergeApplyInFlight = true;
+  const applyBtn = document.getElementById("applyMergeBtn");
+  if (applyBtn) applyBtn.disabled = true;
 
   try {
     const result = await api("/api/merge/apply", {
@@ -1956,6 +1966,12 @@ async function applyMerge() {
         mark_resolved: fromSvn,
       }),
     });
+
+    // Clear stale merge data immediately so an accidental re-click while the
+    // queue advances / svn update runs cannot re-fire apply with the wrong
+    // sources (the file is no longer in SVN conflict state).
+    state.mergeData = null;
+    state.activeSheet = null;
 
     if (inQueue) {
       state.updateContext.semanticQueue.shift();
@@ -1981,6 +1997,8 @@ async function applyMerge() {
     checkRemoteVersion();
   } catch (e) {
     alert(t('merge.applyFailed', e.message));
+  } finally {
+    state.mergeApplyInFlight = false;
   }
 }
 

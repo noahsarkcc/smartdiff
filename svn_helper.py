@@ -574,6 +574,34 @@ def smart_update(path: str, skip_files: list, theirs_files: list,
     results = {"updated": 0, "skipped": [], "theirs": [],
                "mine": [], "semantic": [], "errors": []}
 
+    # CRITICAL: semantic_files must be promoted to HEAD BEFORE the directory
+    # update. /api/merge/apply has already written the merged result to the
+    # working copy and run `svn resolve --accept working` on it, but the file's
+    # BASE is still the pre-update revision. If we let `svn update --accept
+    # postpone <dir>` run first, SVN re-runs the three-way merge between BASE,
+    # HEAD and our working content, finds a conflict (working == .mine, not the
+    # actual merge), and injects `<<<<<<<` / `>>>>>>>` markers into the file.
+    # The subsequent `svn resolve --accept working` would then freeze those
+    # markers as the "final" content (svn resolve --accept working does NOT
+    # clean conflict markers - that is by design). The result is silent data
+    # corruption: the working copy ends up with conflict markers but SVN
+    # thinks the file is resolved, and the next merge preview crashes with
+    # "not well-formed (invalid token): line 3, column 1" when it tries to
+    # parse the poisoned XML as MINE.
+    #
+    # Fix: for each semantic file, single-file `svn update --accept working`
+    # pushes BASE up to HEAD while explicitly accepting the working copy
+    # (which contains our cleanly-merged content). After that, the directory
+    # update can no longer touch these files. Run a defensive `resolve
+    # --accept working` first in case /api/merge/apply's resolve didn't take
+    # (e.g. SVN couldn't find a conflict state to clear, which returns rc!=0
+    # but is harmless).
+    for f in semantic_files:
+        fpath = os.path.join(path, f)
+        _run("resolve", "--accept", "working", fpath)
+        _run("update", "--accept", "working", fpath, timeout=60)
+        results["semantic"].append(f)
+
     rc, out, err = _run("update", "--accept", "postpone", path, timeout=300)
     if rc != 0 and not get_conflicted_files(path):
         # Conflict state is checked via `status --xml` rather than sniffing
@@ -598,11 +626,6 @@ def smart_update(path: str, skip_files: list, theirs_files: list,
         fpath = os.path.join(path, f)
         _run("resolve", "--accept", "mine-full", fpath)
         results["skipped"].append(f)
-
-    for f in semantic_files:
-        fpath = os.path.join(path, f)
-        _run("resolve", "--accept", "working", fpath)
-        results["semantic"].append(f)
 
     return results
 

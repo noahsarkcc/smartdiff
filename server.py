@@ -83,6 +83,22 @@ def _read_bytes(path: str):
         return None
 
 
+# SVN conflict markers as written by `svn update --accept postpone`. Detecting
+# them in working-copy bytes lets us surface a clear error message instead of
+# the cryptic "not well-formed (invalid token)" from ElementTree.
+_CONFLICT_MARKER_PREFIXES = (b"<<<<<<<", b"=======", b">>>>>>>")
+
+
+def _has_conflict_markers(data: bytes) -> bool:
+    """True when *any* line in *data* starts with an SVN conflict marker."""
+    if not data:
+        return False
+    for line in data.splitlines():
+        if any(line.startswith(p) for p in _CONFLICT_MARKER_PREFIXES):
+            return True
+    return False
+
+
 def _resolve_merge_sources(fpath: str, theirs_rev_hint="HEAD") -> dict:
     """Resolve BASE / MINE / THEIRS contents for three-way merge.
 
@@ -106,6 +122,14 @@ def _resolve_merge_sources(fpath: str, theirs_rev_hint="HEAD") -> dict:
         theirs = _read_bytes(conflict["theirs_file"])
         if base is None or mine is None or theirs is None:
             raise ValueError("\u65e0\u6cd5\u8bfb\u53d6 SVN \u51b2\u7a81\u7684\u65c1\u8def\u6587\u4ef6")
+        # Sidecars should be clean (SVN writes them before injecting markers
+        # into the working copy), but verify so an upstream surprise raises
+        # the friendly message instead of an ElementTree ParseError.
+        if _has_conflict_markers(mine):
+            raise ValueError(
+                "SVN \u65c1\u8def\u6587\u4ef6 .mine \u542b\u51b2\u7a81\u6807\u8bb0\uff0c"
+                "\u8bf7\u5148\u624b\u52a8\u6e05\u7406\u540e\u91cd\u8bd5"
+            )
         return {
             "is_conflict": True,
             "base": base,
@@ -128,6 +152,18 @@ def _resolve_merge_sources(fpath: str, theirs_rev_hint="HEAD") -> dict:
     mine = _read_bytes(fpath)
     if mine is None:
         raise ValueError("\u65e0\u6cd5\u8bfb\u53d6\u5de5\u4f5c\u526f\u672c")
+    # Defensive: a previous botched semantic-merge could have frozen
+    # `<<<<<<<` / `=======` / `>>>>>>>` conflict markers into the working
+    # copy (see svn_helper.smart_update for the historical scenario). We
+    # cannot parse that as XML - raise a clearly-worded error instead of
+    # letting ElementTree explode with "not well-formed: line N column 1".
+    if _has_conflict_markers(mine):
+        raise ValueError(
+            "\u5de5\u4f5c\u526f\u672c\u6587\u4ef6\u542b\u6709 SVN \u51b2\u7a81\u6807\u8bb0"
+            "\uff08`<<<<<<<` / `=======` / `>>>>>>>`\uff09\uff0c\u65e0\u6cd5\u89e3\u6790\u4e3a XML\u3002"
+            "\u8bf7\u5728\u5916\u90e8\u7f16\u8f91\u5668\u4e2d\u624b\u52a8\u6e05\u7406\u6807\u8bb0\uff0c"
+            "\u6216\u8fd0\u884c `svn revert` \u540e\u91cd\u65b0\u8d70\u8bed\u4e49\u5408\u5e76\u6d41\u7a0b"
+        )
 
     if str(theirs_rev_hint).upper() == "HEAD":
         info = svn_helper.get_svn_info(fpath)
