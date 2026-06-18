@@ -31,6 +31,8 @@ SVN 冲突合并流程重做 + 系统托盘运行。
 - 语义合并 cell 决议按钮解锁：以前只有 `conflict` 状态的 cell 才能点「保留我的 / 用远端 / 自定义」，`auto_mine` / `auto_theirs` / `auto_both` 三种"自动决议"状态都锁死了。现在三种 auto 状态也显示决议按钮（默认值不变，按钮 selected 高亮当前用的是哪一边），用户取消「只看待解决」后可逐个核对并 override 自动决议——主要防止本地有未提交脏改时 `auto_mine` 把远端正确值默默丢掉。`collectResolutions` 通过新的 `isCellOverridden` 判断 cell 是否被用户改动过默认值，只发送被改动的 auto-cell 到 `/api/merge/apply`；README 中英补充 BASE / 本地 / 远端 含义 + 自动决议规则小节
 - 托盘「显示日志」改用浏览器打开内置的 `/log` 查看器：最新条目排在顶部、5 秒自动刷新、深色等宽字体顶栏带文件路径 / 行数 / 字节数 / 最后修改时间，比记事本更适合实时观察。`webbrowser.open` 失败时仍 fallback 到原有的记事本 / xdg-open 方式
 - 切换工作区新增全屏遮罩进度条：分「提交切换请求 → 加载文件列表 → 检查 SVN 状态」三个步骤展示，避免大仓库切换时用户误以为已经切完。SVN 三个 load（modified / classify / conflicted）改用 `Promise.allSettled` 等待全部完成再隐藏遮罩，单个 SVN 调用失败也不会卡住进度条
+- 修复语义合并队列中「格式改但无语义差异」文件卡住用户的问题：当文件只是格式 / 空白 / 属性顺序差异，三方对比为 0 冲突 0 自动合并、每个 sheet 都「无任何变更」时，原本顶部 banner 文案「正在合并 X (1/1)…」带省略号让人误以为程序还在跑、不敢动；现在 banner 改为行动式「请处理：X（第 1/N 个）— 完成后点工具栏右上『应用合并并保存』继续」，内容区在 sheet 之前插入显眼的「三方对比无语义差异」绿色引导卡，自带「确认无差异，完成此文件」主按钮，一键完成 svn resolve + 推进队列
+- 后端关键 API 补 INFO/WARNING 业务日志，方便从 `/log` 查看器回溯定位：`/api/workspaces/switch|add|remove` 记录切目录 / 工作区增删，`/api/merge/preview` 记录文件 + from_svn_conflict + auto/conflicts 计数，`/api/merge/apply` 记录 resolutions / total_changes / svn_resolved，`/api/merge/svn-mark-resolved` 记录 resolve 成败，`/api/svn/update` 记录入口（skip/theirs/mine/semantic 计数）与出口（updated/errors 计数）。异常分支统一 WARNING（含 file + err 摘要前 200 字符）
 
 ## v1.4.2（2026-06-12）
 

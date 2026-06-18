@@ -2139,6 +2139,19 @@ function renderMergeView(container) {
   </div>`;
   html += `</div>`;
 
+  // Format-only / semantically-identical files: three-way diff yields zero
+  // conflicts and zero auto-decided cells, every sheet shows "no changes",
+  // and there is no obvious next step. Surface a big "confirm & finish" CTA
+  // so the user (especially mid-queue) does not feel stuck.
+  const s = md.summary || {};
+  if ((s.conflicts || 0) === 0 && (s.auto_resolved || 0) === 0) {
+    html += `<div class="merge-noop-banner">
+      <div class="title">${t('merge.noopTitle')}</div>
+      <div class="hint">${t('merge.noopHint')}</div>
+      <button class="btn primary lg" onclick="applyMerge()">${t('merge.noopConfirm')}</button>
+    </div>`;
+  }
+
   const sheet = md.sheets[state.activeSheet];
   html += renderMergeSheet(state.activeSheet, sheet);
 

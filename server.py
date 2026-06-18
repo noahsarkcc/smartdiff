@@ -31,6 +31,12 @@ except Exception:
     _HAS_TRAY = False
 
 
+# Module-level logger for business INFO records (workspace switch, merge
+# preview/apply, svn update). Wired up by setup_logging() later in the file;
+# safe to reference at import time because logging.getLogger is global.
+logger = logging.getLogger("smartdiff")
+
+
 SUPPORTED_EXTENSIONS = (".xml", ".xlsx", ".xls")
 
 
@@ -421,7 +427,9 @@ def api_workspaces_switch():
         return jsonify({"error": "Invalid workspace index"}), 400
     cfg["active_workspace"] = idx
     save_err = _save_config()
-    return jsonify({"ok": True, "work_dir": cfg["workspaces"][idx]["path"],
+    new_path = cfg["workspaces"][idx]["path"]
+    logger.info("Workspace switched: idx=%d path=%s", idx, new_path)
+    return jsonify({"ok": True, "work_dir": new_path,
                     "warning": save_err})
 
 
@@ -443,6 +451,7 @@ def api_workspaces_add():
     cfg["workspaces"].append({"name": name, "path": path})
     cfg["active_workspace"] = len(cfg["workspaces"]) - 1
     save_err = _save_config()
+    logger.info("Workspace added: name=%s path=%s", name, path)
     return jsonify({"ok": True, "workspaces": cfg["workspaces"],
                     "active_workspace": cfg["active_workspace"], "warning": save_err})
 
@@ -457,10 +466,11 @@ def api_workspaces_remove():
         return jsonify({"error": "Invalid workspace index"}), 400
     if len(cfg["workspaces"]) <= 1:
         return jsonify({"error": "Cannot remove the last workspace"}), 400
-    cfg["workspaces"].pop(idx)
+    removed = cfg["workspaces"].pop(idx)
     if cfg["active_workspace"] >= len(cfg["workspaces"]):
         cfg["active_workspace"] = len(cfg["workspaces"]) - 1
     save_err = _save_config()
+    logger.info("Workspace removed: idx=%d path=%s", idx, removed.get("path", ""))
     return jsonify({"ok": True, "workspaces": cfg["workspaces"],
                     "active_workspace": cfg["active_workspace"], "warning": save_err})
 
@@ -929,6 +939,7 @@ def api_merge_preview():
     try:
         sources = _resolve_merge_sources(fpath, theirs_rev_hint=theirs_rev)
     except ValueError as e:
+        logger.warning("Merge preview failed (sources): file=%s err=%s", filename, e)
         return jsonify({"error": str(e)}), 500
 
     try:
@@ -941,6 +952,7 @@ def api_merge_preview():
     except Exception as e:
         import traceback
         traceback.print_exc()
+        logger.warning("Merge preview failed (diff): file=%s err=%s", filename, e)
         return jsonify({"error": str(e)}), 500
 
     result["file"] = filename
@@ -949,6 +961,11 @@ def api_merge_preview():
     result["theirs_label"] = sources["theirs_label"]
     result["theirs_revision"] = sources["theirs_revision"]
     result["from_svn_conflict"] = sources["is_conflict"]
+    summary = result.get("summary", {}) or {}
+    logger.info("Merge preview: file=%s from_svn_conflict=%s auto=%d conflicts=%d",
+                filename, sources["is_conflict"],
+                int(summary.get("auto_resolved", 0)),
+                int(summary.get("conflicts", 0)))
     return jsonify(result)
 
 
@@ -981,6 +998,7 @@ def api_merge_apply():
     try:
         sources = _resolve_merge_sources(fpath, theirs_rev_hint=theirs_rev)
     except ValueError as e:
+        logger.warning("Merge apply failed (sources): file=%s err=%s", filename, e)
         return jsonify({"error": str(e)}), 500
 
     try:
@@ -992,6 +1010,8 @@ def api_merge_apply():
                                            id_column=body.get("id_column"))
         applied = xml_merger.apply_resolutions(result, resolutions)
         if not applied["ok"]:
+            logger.warning("Merge apply rejected (unresolved): file=%s unresolved=%d",
+                           filename, len(applied.get("unresolved", []) or []))
             return jsonify({
                 "error": "\u5b58\u5728\u672a\u51b3\u8bae\u7684\u51b2\u7a81",
                 "unresolved": applied["unresolved"],
@@ -1014,6 +1034,7 @@ def api_merge_apply():
     except Exception as e:
         import traceback
         traceback.print_exc()
+        logger.warning("Merge apply failed (write): file=%s err=%s", filename, e)
         return jsonify({"error": str(e)}), 500
 
     # Auto-resolve SVN conflict when the merge originated from one, since the
@@ -1022,7 +1043,14 @@ def api_merge_apply():
     if mark_resolved or sources["is_conflict"]:
         rc, _out, _err = svn_helper._run("resolve", "--accept", "working", fpath)
         svn_resolved = (rc == 0)
+        if not svn_resolved:
+            logger.warning("svn resolve failed: file=%s rc=%d err=%s",
+                           filename, rc, (_err or "").strip()[:200])
 
+    logger.info("Merge apply: file=%s resolutions=%d total_changes=%d svn_resolved=%s "
+                "from_svn_conflict=%s",
+                filename, int(applied.get("applied", 0)), total_changes,
+                svn_resolved, sources["is_conflict"])
     return jsonify({
         "ok": True,
         "file": filename,
@@ -1049,7 +1077,10 @@ def api_merge_svn_mark_resolved():
         return jsonify({"error": f"File not found: {filename}"}), 404
     rc, _out, err = svn_helper._run("resolve", "--accept", "working", fpath)
     if rc != 0:
+        logger.warning("SVN mark resolved failed: file=%s rc=%d err=%s",
+                       filename, rc, (err or "").strip()[:200])
         return jsonify({"error": err or "svn resolve failed"}), 500
+    logger.info("SVN mark resolved: file=%s", filename)
     return jsonify({"ok": True, "file": filename})
 
 
@@ -1118,8 +1149,17 @@ def api_svn_update():
     theirs_files = body.get("theirs_files", [])
     mine_files = body.get("mine_files", [])
     semantic_files = body.get("semantic_files", [])
+    logger.info("SVN update start: skip=%d theirs=%d mine=%d semantic=%d",
+                len(skip_files), len(theirs_files), len(mine_files), len(semantic_files))
     result = svn_helper.smart_update(wd, skip_files, theirs_files,
                                      mine_files, semantic_files)
+    logger.info("SVN update done: updated=%d skipped=%d theirs=%d mine=%d semantic=%d errors=%d",
+                int(result.get("updated", 0) or 0),
+                len(result.get("skipped", []) or []),
+                len(result.get("theirs", []) or []),
+                len(result.get("mine", []) or []),
+                len(result.get("semantic", []) or []),
+                len(result.get("errors", []) or []))
     return jsonify(result)
 
 

@@ -1571,3 +1571,39 @@ body {
   color: var(--text-dim);
   min-height: 18px;
 }
+
+/* "No semantic differences" CTA card shown when three-way diff yields
+   zero conflicts and zero auto-decided cells (typically format-only diffs
+   in SVN-conflicted files). Sits above the sheet so the user has an
+   obvious next action instead of an empty "no changes" pane. */
+.merge-noop-banner {
+  margin: 16px;
+  padding: 24px 32px;
+  background: rgba(35, 134, 54, 0.08);
+  border: 1px solid #238636;
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+.merge-noop-banner .title {
+  font-size: 16px;
+  color: var(--text-bright);
+  margin-bottom: 8px;
+}
+.merge-noop-banner .title::before {
+  content: "\2713\00a0";
+  color: #238636;
+  font-weight: 700;
+}
+.merge-noop-banner .hint {
+  font-size: 13px;
+  color: var(--text-dim);
+  max-width: 640px;
+  margin: 0 auto 16px;
+  line-height: 1.6;
+}
+.btn.lg {
+  padding: 8px 20px;
+  font-size: 14px;
+  min-height: 36px;
+  border-radius: 6px;
+}
