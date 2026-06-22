@@ -32,6 +32,7 @@ const state = {
   mergeRowExpanded: {},              // 单行手动展开覆盖：{ "sheet:rowKey": true|false }
   // 更新流程上下文（语义合并队列）
   updateContext: null,               // { skip, theirs, mine, semanticQueue:[], semanticDone:[], totalSemantic }
+  svnUpdateInFlight: false,           // Directory/single-file SVN update is running
   // in-app update
   updateInfo: null,                  // /api/update/check 结果
   updateBusy: false,                 // 下载/重启流程进行中
@@ -458,7 +459,7 @@ function startRemoteVersionCheck() {
 async function checkRemoteVersion() {
   if (!state.config || !state.config.svn_available) return;
   // 流程进行中（语义合并队列 / 正在更新）不要覆盖 banner
-  if (state.updateContext) return;
+  if (state.updateContext || state.svnUpdateInFlight || state.mergeApplyInFlight) return;
   if (_bannerDismissed) return;
   try {
     const data = await api("/api/svn/remote-revision");
@@ -483,6 +484,7 @@ function dismissBanner() {
 }
 
 async function doSvnUpdate() {
+  if (state.svnUpdateInFlight) return;
   const banner = document.getElementById("updateBanner");
   banner.innerHTML = `${t('update.checking')}`;
 
@@ -496,14 +498,7 @@ async function doSvnUpdate() {
     if (checkData.conflicts && checkData.conflicts.length > 0) {
       showUpdateConflictModal(checkData);
     } else {
-      const result = await api("/api/svn/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      banner.innerHTML = `${t('update.doneSimple', result.updated || 0)}`;
-      setTimeout(() => { banner.style.display = "none"; }, 3000);
-      await reloadAfterUpdate();
+      await _runUpdateAndReport({});
     }
   } catch (e) {
     banner.innerHTML = `${t('update.failed', e.message)} <button class="btn-dismiss" onclick="dismissBanner()">${t('update.close')}</button>`;
@@ -614,6 +609,8 @@ async function executeUpdate() {
 }
 
 async function _runUpdateAndReport(payload) {
+  if (state.svnUpdateInFlight) return;
+  state.svnUpdateInFlight = true;
   const banner = document.getElementById("updateBanner");
   try {
     const result = await api("/api/svn/update", {
@@ -630,17 +627,20 @@ async function _runUpdateAndReport(payload) {
     if (result.errors && result.errors.length) parts.push(t('update.doneErrors', result.errors.length));
     banner.innerHTML = `${t('update.doneDetail', parts.join(", "))}`;
     setTimeout(() => { banner.style.display = "none"; checkRemoteVersion(); }, 5000);
-    await reloadAfterUpdate();
+    await reloadAfterUpdate({ skipRemoteCheck: true });
   } catch (e) {
     banner.innerHTML = `${t('update.failed', e.message)} <button class="btn-dismiss" onclick="dismissBanner()">${t('update.close')}</button>`;
     banner.style.display = "flex";
+  } finally {
+    state.svnUpdateInFlight = false;
+    renderToolbar();
   }
 }
 
 async function _processNextSemantic() {
   const ctx = state.updateContext;
   if (!ctx || ctx.semanticQueue.length === 0) {
-    _finishSemanticQueue();
+    await _finishSemanticQueue();
     return;
   }
   const fname = ctx.semanticQueue[0];
@@ -671,11 +671,16 @@ async function _finishSemanticQueue() {
     semantic_files: ctx.semanticDone,
   };
   state.updateContext = null;
+  state.mergeFromSvnConflict = false;
   await _runUpdateAndReport(payload);
 }
 
 function cancelSemanticQueue() {
   if (!state.updateContext) return;
+  if (state.updateContext.semanticDone.length > 0) {
+    alert(t('merge.queueCancelLocked'));
+    return;
+  }
   if (!confirm(t('merge.confirmCancelQueue'))) return;
   state.updateContext = null;
   state.mergeFromSvnConflict = false;
@@ -689,7 +694,7 @@ function closeUpdateModal() {
   if (overlay) overlay.remove();
 }
 
-async function reloadAfterUpdate() {
+async function reloadAfterUpdate(options = {}) {
   state.config = await api("/api/config");
   renderHeader();
   await loadFiles();
@@ -701,7 +706,7 @@ async function reloadAfterUpdate() {
   if (state.selectedFile && state.mode === "local") {
     doDiffLocal();
   }
-  checkRemoteVersion();
+  if (!options.skipRemoteCheck) checkRemoteVersion();
 }
 
 // ── Render: File list ──
@@ -1954,7 +1959,7 @@ async function applyMerge() {
   // the previous request, svn update, or queue advance is still running -
   // hitting it twice on the same file makes the second call read a
   // poisoned working copy after svn update has injected conflict markers).
-  if (state.mergeApplyInFlight) return;
+  if (state.mergeApplyInFlight || state.svnUpdateInFlight) return;
   if (countRemainingConflicts() > 0) {
     alert(t('merge.unresolvedAlert'));
     return;
@@ -1963,6 +1968,7 @@ async function applyMerge() {
   const resolutions = collectResolutions();
   const fromSvn = !!state.mergeFromSvnConflict;
   const currentFile = state.selectedFile;
+  const mergeTargetRevision = state.mergeData.theirs_revision || state.mergeTheirsRev || "HEAD";
   const inQueue = !!(state.updateContext && state.updateContext.semanticQueue.length > 0
                      && state.updateContext.semanticQueue[0] === currentFile);
 
@@ -1976,7 +1982,7 @@ async function applyMerge() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         file: currentFile,
-        theirs_rev: state.mergeData.theirs_revision || state.mergeTheirsRev || "HEAD",
+        theirs_rev: mergeTargetRevision,
         resolutions: resolutions,
         mark_resolved: fromSvn,
         // Echo back the fingerprint preview computed; backend rejects with 409
@@ -1994,12 +2000,15 @@ async function applyMerge() {
 
     if (inQueue) {
       state.updateContext.semanticQueue.shift();
-      state.updateContext.semanticDone.push(currentFile);
+      state.updateContext.semanticDone.push({
+        file: currentFile,
+        theirs_revision: result.theirs_revision || mergeTargetRevision,
+      });
       loadConflictedFiles();
       if (state.updateContext.semanticQueue.length > 0) {
-        _processNextSemantic();
+        await _processNextSemantic();
       } else {
-        _finishSemanticQueue();
+        await _finishSemanticQueue();
       }
       return;
     }

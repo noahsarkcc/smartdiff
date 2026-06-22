@@ -206,19 +206,21 @@ def _compute_merge_signature(sources: dict, fpath: str) -> str:
       - ``theirs_revision``: the remote revision THEIRS was resolved against.
         Catches "remote HEAD moved between preview and apply" (someone else
         committed).
-      - ``mine_mtime``: working-copy mtime in whole seconds. Catches
-        "user edited the file in another editor between preview and apply".
+      - ``mine_stat``: working-copy size + nanosecond mtime. Catches "user
+        edited the file in another editor between preview and apply", including
+        fast saves within the same wall-clock second.
 
     Returns a colon-joined string for compact JSON transport.
     """
     try:
-        mine_mtime = int(os.path.getmtime(fpath))
+        st = os.stat(fpath)
+        mine_stat = f"{st.st_size},{getattr(st, 'st_mtime_ns', int(st.st_mtime * 1_000_000_000))}"
     except OSError:
-        mine_mtime = 0
+        mine_stat = "0,0"
     return "{0}:{1}:{2}".format(
         int(bool(sources.get("is_conflict"))),
         sources.get("theirs_revision") or 0,
-        mine_mtime,
+        mine_stat,
     )
 
 
@@ -1145,6 +1147,7 @@ def api_merge_apply():
         "total_changes": total_changes,
         "svn_resolved": svn_resolved,
         "from_svn_conflict": sources["is_conflict"],
+        "theirs_revision": sources["theirs_revision"],
     })
 
 

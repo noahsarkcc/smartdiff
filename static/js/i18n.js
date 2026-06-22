@@ -216,6 +216,7 @@ const I18N_MESSAGES = {
     'merge.queueHint': '当前是更新流程的语义合并队列：{0} / {1}。完成此文件后会自动处理下一个。',
     'merge.queueCancel': '取消队列',
     'merge.confirmCancelQueue': '确定取消整个语义合并队列？已合并的文件不会回滚。',
+    'merge.queueCancelLocked': '已有文件完成语义合并，必须继续完成队列并执行最终 svn update，才能确保 SVN 不会重新写入冲突标记。',
     'mergeList.noConflicts': '当前没有需要语义合并的 SVN 冲突文件；本地修改但没冲突的文件请去「本地变更」视图。',
     'dot.conflicted': 'SVN 冲突',
 
@@ -500,6 +501,7 @@ const I18N_MESSAGES = {
     'merge.queueHint': 'Semantic merge queue from update flow: {0} / {1}. Next file will be processed automatically.',
     'merge.queueCancel': 'Cancel queue',
     'merge.confirmCancelQueue': 'Cancel the whole semantic merge queue? Already merged files will not be reverted.',
+    'merge.queueCancelLocked': 'At least one file has already been merged. Finish the queue and final svn update so SVN cannot re-inject conflict markers.',
     'mergeList.noConflicts': 'No SVN-conflict .xml files needing semantic merge; for locally-modified-but-not-conflicted files use the "Local changes" view.',
     'dot.conflicted': 'SVN conflict',
 

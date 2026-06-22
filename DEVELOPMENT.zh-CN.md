@@ -48,7 +48,7 @@ smartdiff/
 │   ├── test_merger.py                  # xml_merger 单元测试（29 用例）
 │   ├── test_differ.py                  # xml_differ 单元测试（11 用例）
 │   ├── test_updater.py                 # updater + /api/update/* 测试（23 用例）
-│   ├── test_api_merge.py               # HTTP API + mock SVN 端到端（16 用例）
+│   ├── test_api_merge.py               # HTTP API + mock SVN 端到端（28 用例）
 │   ├── setup_demo_svn.bat              # 一键搭建 SVN 演示仓库供手工 UI 测试
 │   └── data/                           # 三方测试数据：base.xml / mine.xml / theirs.xml
 ├── README.md / README.zh-CN.md
@@ -274,7 +274,7 @@ def validate_workbook(parsed: dict, rules: list) -> list:
 
 ```bash
 pip install -r requirements.txt pyinstaller
-pyinstaller --onefile --console --add-data "static;static" --name SmartDiff server.py
+pyinstaller --onefile --noconsole --add-data "static;static" --hidden-import pystray._win32 --hidden-import PIL.Image --hidden-import PIL.ImageDraw --name SmartDiff server.py
 ```
 
 生成的 `dist/SmartDiff.exe` 可独立运行，无需 Python 环境。`config.json` 会在首次启动时自动生成，无需打包进去。
@@ -303,7 +303,7 @@ python tests\test_differ.py     # 11 用例
 python tests\test_updater.py    # 23 用例
 
 # 4) HTTP API 端到端（mock SVN）
-python tests\test_api_merge.py  # 16 用例
+python tests\test_api_merge.py  # 28 用例
 
 # 5) 手工 UI 测试（需要 svn CLI）
 tests\setup_demo_svn.bat        # 在 %TEMP%\xmldev_demo_svn\ 搭一个三方对齐的演示仓库

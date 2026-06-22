@@ -524,9 +524,9 @@ def get_conflict_info(filepath: str) -> Optional[dict]:
     if (conflict.get("type") or "").lower() != "text":
         return None
 
-    base_file = (conflict.findtext("prev-base-file") or "").strip()
-    mine_file = (conflict.findtext("prev-wc-file") or "").strip()
-    theirs_file = (conflict.findtext("cur-base-file") or "").strip()
+    base_file = _resolve_conflict_sidecar(filepath, (conflict.findtext("prev-base-file") or "").strip())
+    mine_file = _resolve_conflict_sidecar(filepath, (conflict.findtext("prev-wc-file") or "").strip())
+    theirs_file = _resolve_conflict_sidecar(filepath, (conflict.findtext("cur-base-file") or "").strip())
     if not (base_file and mine_file and theirs_file):
         return None
 
@@ -552,6 +552,40 @@ def get_conflict_info(filepath: str) -> Optional[dict]:
         "base_rev": base_rev,
         "theirs_rev": theirs_rev,
     }
+
+
+def _resolve_conflict_sidecar(filepath: str, sidecar: str) -> str:
+    """Resolve SVN conflict sidecar paths relative to the conflicted file.
+
+    SVN may report sidecars as bare relative names such as ``items.xml.mine``.
+    SmartDiff's process cwd is the app directory, not necessarily the file's
+    folder, so resolve relative names beside the conflicted working-copy file.
+    """
+    if not sidecar or os.path.isabs(sidecar):
+        return sidecar
+    file_dir = os.path.dirname(os.path.abspath(filepath))
+    beside_file = os.path.normpath(os.path.join(file_dir, sidecar))
+    if os.path.exists(beside_file):
+        return beside_file
+    cwd_path = os.path.abspath(sidecar)
+    if os.path.exists(cwd_path):
+        return cwd_path
+    return beside_file
+
+
+def _semantic_file_entry(item) -> tuple:
+    """Return (workspace-relative file, target revision) for semantic update."""
+    if isinstance(item, dict):
+        name = item.get("file") or item.get("name") or item.get("path") or ""
+        rev = item.get("theirs_revision") or item.get("revision")
+    else:
+        name = str(item or "")
+        rev = None
+    try:
+        rev_int = int(rev) if rev not in (None, "", "HEAD") else None
+    except (TypeError, ValueError):
+        rev_int = None
+    return name, rev_int
 
 
 # Update output item lines look like "U    path" / "A    path" / "UU   path".
@@ -596,10 +630,25 @@ def smart_update(path: str, skip_files: list, theirs_files: list,
     # --accept working` first in case /api/merge/apply's resolve didn't take
     # (e.g. SVN couldn't find a conflict state to clear, which returns rc!=0
     # but is harmless).
-    for f in semantic_files:
+    for item in semantic_files:
+        f, target_rev = _semantic_file_entry(item)
+        if not f:
+            results["errors"].append("semantic merge file is missing")
+            return results
+        if target_rev is None:
+            results["errors"].append(
+                f"{f}: missing semantic merge target revision; please preview again")
+            return results
+
         fpath = os.path.join(path, f)
         _run("resolve", "--accept", "working", fpath)
-        _run("update", "--accept", "working", fpath, timeout=60)
+        rc, out, err = _run(
+            "update", "-r", str(target_rev), "--accept", "working", fpath,
+            timeout=60)
+        if rc != 0:
+            msg = (err or out or "svn update failed").strip()
+            results["errors"].append(f"{f}: {msg}")
+            return results
         results["semantic"].append(f)
 
     rc, out, err = _run("update", "--accept", "postpone", path, timeout=300)

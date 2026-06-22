@@ -18,7 +18,9 @@ Rebuilt SVN conflict semantic-merge flow + system tray.
 
 **Data safety (critical fixes)**
 - Fixed critical data corruption where the directory-wide `svn update` at the end of the semantic-merge queue froze `<<<<<<<` / `=======` / `>>>>>>>` markers into the working copy: SVN re-merges those files and re-injects markers, and `--accept working` by design does not strip them, so corrupted XML was persisted as "resolved". The new flow runs `svn resolve --accept working` + `svn update --accept working <file>` for each semantic file *before* the directory update, promoting BASE to HEAD individually so the directory update no longer touches them
-- SVN external-state drift defense: `/api/merge/preview` returns a `merge_signature` (`is_conflict` + `theirs_revision` + `mine_mtime` triple), echoed back on `applyMerge`; a mismatch makes the backend return HTTP 409 + `stale: true` and the frontend silently re-runs preview. Merge mode also polls the conflict list every 30s. Covers command-line `svn resolve` / `svn update` / external editor saves
+- SVN external-state drift defense: `/api/merge/preview` returns a `merge_signature` (`is_conflict` + `theirs_revision` + file size / nanosecond mtime), echoed back on `applyMerge`; a mismatch makes the backend return HTTP 409 + `stale: true` and the frontend silently re-runs preview. Merge mode also polls the conflict list every 30s. Covers command-line `svn resolve` / `svn update` / external editor saves
+- Semantic-merge finalization now carries each file's exact target revision into `/api/svn/update`, promotes with `svn update -r <theirs_revision> --accept working <file>`, and stops before the directory update if that single-file promote fails; relative `.mine` / `.rN` sidecar paths are resolved beside the conflicted file
+- Once a queued semantic merge has written any file, the UI no longer allows cancelling the queue before the final promote/update step, preventing already-merged files from being left in a state where SVN can re-inject conflict markers
 - A working copy containing `<<<<<<<` / `=======` / `>>>>>>>` markers, or a vanished `.mine` sidecar, now produces a clear Chinese error instead of an ElementTree `not well-formed` ParseError
 - `applyMerge` reentry guard (`mergeApplyInFlight` + button disabled + clears `mergeData` / `activeSheet` on success) prevents re-applying while a queue advance / svn update is in flight
 
@@ -44,7 +46,7 @@ Rebuilt SVN conflict semantic-merge flow + system tray.
 - `static/js/app.js` `api()` helper attaches `err.status` / `err.body` on the error path so callers can differentiate e.g. 409 stale from a generic 500 while remaining compatible with `alert(e.message)`
 
 **Tests**
-- `test_api_merge.py` grown to 26 cases, adding data-corruption regressions (`test_smart_update_semantic_files_promoted_first`, `test_apply_rejects_poisoned_working_copy`) and four SVN drift regressions (conflict→resolved, resolved→conflict, mtime change, vanished `.mine` sidecar)
+- `test_api_merge.py` grown to 28 cases, adding data-corruption regressions (`test_smart_update_semantic_files_promoted_first`, `test_apply_rejects_poisoned_working_copy`), semantic promote failure / relative sidecar regressions, and four SVN drift regressions (conflict→resolved, resolved→conflict, mtime change, vanished `.mine` sidecar)
 
 ## v1.4.2 (2026-06-12)
 

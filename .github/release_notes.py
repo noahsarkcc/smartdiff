@@ -9,8 +9,8 @@ Usage:
   release page stays user-facing.
 - Versions between prev_tag (exclusive) and <tag> that never got their own
   release are summarized as one "Also includes vX.Y.Z: <intro line>" each.
-- Always ends with a "See CHANGELOG for details." link, so a release is
-  never published with an empty body.
+- Ends with a compare link when the previous tag is known, otherwise falls
+  back to a "See CHANGELOG for details." link.
 """
 import re
 import sys
@@ -106,8 +106,11 @@ def main():
             parts.append(f"Also includes **{tag}**: {summary}" if summary
                          else f"Also includes **{tag}** (see CHANGELOG).")
 
-    parts.append(f"See [CHANGELOG](https://github.com/{REPO}/blob/main/CHANGELOG.md) "
-                 f"for details.")
+    if len(args) > 1 and args[1]:
+        parts.append(f"Full Changelog: https://github.com/{REPO}/compare/{args[1]}...{args[0]}")
+    else:
+        parts.append(f"See [CHANGELOG](https://github.com/{REPO}/blob/main/CHANGELOG.md) "
+                     f"for details.")
 
     sys.stdout.buffer.write(("\n\n".join(parts) + "\n").encode("utf-8"))
     return 0

@@ -48,7 +48,7 @@ smartdiff/
 │   ├── test_merger.py                  # xml_merger unit tests (29 cases)
 │   ├── test_differ.py                  # xml_differ unit tests (11 cases)
 │   ├── test_updater.py                 # updater + /api/update/* tests (23 cases)
-│   ├── test_api_merge.py               # HTTP API + mock SVN end-to-end (16 cases)
+│   ├── test_api_merge.py               # HTTP API + mock SVN end-to-end (28 cases)
 │   ├── setup_demo_svn.bat              # Bootstrap a demo SVN repo for manual UI tests
 │   └── data/                           # Three-way fixtures: base.xml / mine.xml / theirs.xml
 ├── README.md / README.zh-CN.md
@@ -303,7 +303,7 @@ python tests\test_differ.py     # 11 cases
 python tests\test_updater.py    # 23 cases
 
 # 4) HTTP API end-to-end (mock SVN)
-python tests\test_api_merge.py  # 16 cases
+python tests\test_api_merge.py  # 28 cases
 
 # 5) Manual UI testing (requires the svn CLI)
 tests\setup_demo_svn.bat        # Creates a three-way aligned demo repo at %TEMP%\xmldev_demo_svn\

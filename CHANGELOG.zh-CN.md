@@ -18,7 +18,9 @@ SVN 冲突语义合并流程重做 + 系统托盘运行。
 
 **数据安全（高危修复）**
 - 修复语义合并队列结束后整目录 `svn update` 把 `<<<<<<<` / `=======` / `>>>>>>>` 标记冻进工作副本的严重数据损坏：SVN 会对这些文件重做三方 merge 再生成标记，而 `--accept working` 按设计不会清理标记，导致带标记的损坏 XML 被认定为「已解决」。新流程在整目录 update **之前**，对每个 semantic_file 单独 `svn resolve --accept working` + `svn update --accept working <file>` 把 BASE 推到 HEAD，整目录 update 不再 touch 它们
-- SVN 外部状态漂移防御：`/api/merge/preview` 返回 `merge_signature`（`is_conflict` + `theirs_revision` + `mine_mtime` 三元组指纹），`applyMerge` 时回传，后端发现指纹不一致即返回 HTTP 409 + `stale: true`，前端提示后自动重跑 preview；merge 模式额外 30s 自动轮询冲突列表。覆盖命令行 `svn resolve` / `svn update` / 外部编辑器保存等场景
+- SVN 外部状态漂移防御：`/api/merge/preview` 返回 `merge_signature`（`is_conflict` + `theirs_revision` + 文件大小 / 纳秒 mtime 指纹），`applyMerge` 时回传，后端发现指纹不一致即返回 HTTP 409 + `stale: true`，前端提示后自动重跑 preview；merge 模式额外 30s 自动轮询冲突列表。覆盖命令行 `svn resolve` / `svn update` / 外部编辑器保存等场景
+- 语义合并收尾现在会把每个文件的精确目标版本传给 `/api/svn/update`，用 `svn update -r <theirs_revision> --accept working <file>` 推进单文件 BASE；如果单文件 promote 失败，会在整目录 update 前停止并返回错误；相对 `.mine` / `.rN` 旁路路径也会按冲突文件所在目录解析
+- 队列中一旦有文件已经写回，前端不再允许在最终 promote/update 前取消队列，避免已合并文件停留在 SVN 仍可能重新注入冲突标记的状态
 - 工作副本含 `<<<<<<<` / `=======` / `>>>>>>>` 标记、或 `.mine` 旁路被外部清掉时，给出清晰中文错误，而非 ElementTree 的 `not well-formed` ParseError
 - applyMerge 重入保护（`mergeApplyInFlight` + 按钮 disabled + 成功后清空 `mergeData` / `activeSheet`），避免队列前进 / svn update 期间重复 apply
 
@@ -44,7 +46,7 @@ SVN 冲突语义合并流程重做 + 系统托盘运行。
 - `static/js/app.js` 的 `api()` helper 在错误路径上把 HTTP status / JSON body 挂到 Error（`err.status` / `err.body`），兼容现有 `alert(e.message)` 的同时让 409 stale 等可恢复错误可被特殊处理
 
 **测试**
-- `test_api_merge.py` 扩充到 26 个用例，新增数据损坏路径回归（`test_smart_update_semantic_files_promoted_first`、`test_apply_rejects_poisoned_working_copy`）与 4 项 SVN 外部漂移回归（冲突→已解决、已解决→冲突、mtime 变化、`.mine` 旁路消失）
+- `test_api_merge.py` 扩充到 28 个用例，新增数据损坏路径回归（`test_smart_update_semantic_files_promoted_first`、`test_apply_rejects_poisoned_working_copy`）、semantic promote 失败 / 相对 sidecar 路径回归，以及 4 项 SVN 外部漂移回归（冲突→已解决、已解决→冲突、mtime 变化、`.mine` 旁路消失）
 
 ## v1.4.2（2026-06-12）
 

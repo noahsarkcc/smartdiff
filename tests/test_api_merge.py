@@ -506,7 +506,10 @@ def test_smart_update_semantic_files_promoted_first():
 
         with patch.object(svn_helper, "_run", side_effect=_fake_run), \
              patch.object(svn_helper, "get_conflicted_files", return_value=[]):
-            svn_helper.smart_update(workdir, [], [], [], ["a.xml", "b.xml"])
+            svn_helper.smart_update(workdir, [], [], [], [
+                {"file": "a.xml", "theirs_revision": 10},
+                {"file": "b.xml", "theirs_revision": 11},
+            ])
 
         cmds = [a[0] for a in calls if a]
         # 必须有两个 semantic_files × (resolve, update) = 至少 4 条命令在
@@ -521,12 +524,78 @@ def test_smart_update_semantic_files_promoted_first():
             "smart_update never ran the directory-wide `svn update --accept postpone`")
 
         prefix = calls[:idx_dir_update]
-        prefix_cmds = [(a[0], a[2] if len(a) >= 3 else None) for a in prefix]
-        # 顺序：("resolve", "working"), ("update", "working") × 2
-        expected = [("resolve", "working"), ("update", "working")] * 2
+        prefix_cmds = [a[:5] for a in prefix]
+        expected = [
+            ("resolve", "--accept", "working", os.path.join(workdir, "a.xml")),
+            ("update", "-r", "10", "--accept", "working"),
+            ("resolve", "--accept", "working", os.path.join(workdir, "b.xml")),
+            ("update", "-r", "11", "--accept", "working"),
+        ]
         assert prefix_cmds == expected, (
             f"semantic_files must be processed before the directory update, "
             f"got prefix={prefix_cmds!r}")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@t("smart_update: semantic_files 缺目标版本或单文件 update 失败时停止整目录 update")
+def test_smart_update_semantic_promote_failure_stops_directory_update():
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    try:
+        calls = []
+
+        result = svn_helper.smart_update(workdir, [], [], [], ["a.xml"])
+        assert result["errors"], "missing target revision should be reported"
+
+        def _fake_run(*args, **kwargs):
+            calls.append(args)
+            if args and args[0] == "update" and args[1] == "-r":
+                return (1, "", "locked")
+            return (0, "", "")
+
+        with patch.object(svn_helper, "_run", side_effect=_fake_run), \
+             patch.object(svn_helper, "get_conflicted_files", return_value=[]):
+            result = svn_helper.smart_update(workdir, [], [], [], [
+                {"file": "a.xml", "theirs_revision": 10},
+            ])
+
+        assert result["errors"] and "locked" in result["errors"][0]
+        assert not any(a[0] == "update" and len(a) >= 4 and a[2] == "postpone"
+                       for a in calls), "directory update must not run after promote failure"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@t("get_conflict_info: 相对 sidecar 路径按冲突文件目录解析")
+def test_get_conflict_info_resolves_relative_sidecars():
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    try:
+        fpath = os.path.join(workdir, "nested", "items.xml")
+        os.makedirs(os.path.dirname(fpath), exist_ok=True)
+        for suffix in (".r1", ".mine", ".r2"):
+            with open(fpath + suffix, "w", encoding="utf-8") as f:
+                f.write("<Workbook/>")
+
+        xml = """<?xml version="1.0"?>
+<info>
+  <entry path="items.xml">
+    <conflict type="text">
+      <prev-base-file>items.xml.r1</prev-base-file>
+      <prev-wc-file>items.xml.mine</prev-wc-file>
+      <cur-base-file>items.xml.r2</cur-base-file>
+      <version side="source-left" revision="1" />
+      <version side="source-right" revision="2" />
+    </conflict>
+  </entry>
+</info>"""
+        with patch.object(svn_helper, "_run", return_value=(0, xml, "")):
+            info = svn_helper.get_conflict_info(fpath)
+
+        assert info is not None
+        assert info["base_file"] == fpath + ".r1"
+        assert info["mine_file"] == fpath + ".mine"
+        assert info["theirs_file"] == fpath + ".r2"
+        assert info["theirs_rev"] == 2
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -863,6 +932,8 @@ def main():
 
     section("6. 数据损坏防护")
     test_smart_update_semantic_files_promoted_first()
+    test_smart_update_semantic_promote_failure_stops_directory_update()
+    test_get_conflict_info_resolves_relative_sidecars()
     test_apply_rejects_poisoned_working_copy()
 
     section("7. SVN 状态漂移防御")
