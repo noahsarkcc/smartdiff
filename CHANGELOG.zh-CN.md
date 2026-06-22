@@ -4,11 +4,6 @@
 
 SmartDiff 的所有重要变更都记录在这里，格式大致遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/) 风格。
 
-## Unreleased
-
-**发布工具**
-- GitHub Release 正文现在生成精简 highlight 摘要，并恢复以 `See CHANGELOG for details.` 结尾，和旧版本 release 页面保持一致
-
 ## v1.5.0（2026-06-17）
 
 SVN 冲突语义合并流程重做 + 系统托盘运行。
