@@ -1392,6 +1392,7 @@ def _main():
             log_path=log_path,
             workspace_resolver=_get_work_dir,
             shutdown_fn=lambda: None,
+            icon_path=os.path.join(_resource_dir(), "static", "img", "miku.svg"),
         )
         # When the tray loop returns without quitting (e.g. unsupported env),
         # fall through to the blocking Flask call.

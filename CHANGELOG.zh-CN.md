@@ -6,42 +6,45 @@ SmartDiff 的所有重要变更都记录在这里，格式大致遵循 [Keep a C
 
 ## v1.5.0（2026-06-17）
 
-SVN 冲突合并流程重做 + 系统托盘运行。
+SVN 冲突语义合并流程重做 + 系统托盘运行。
 
-**问题修复**
-- 修复处于 SVN 文本冲突状态的 .xml 文件无法做语义合并的问题：原先工作副本已被 `<<<<<<<` 标记污染、`svn cat -r BASE` 返回的是更新后的 HEAD 而非真正的祖先版本，三方对比完全错位。现在检测到冲突时改用 `svn info --xml` 暴露的 `.r<old>` / `.mine` / `.r<new>` 三个旁路文件作为 BASE / MINE / THEIRS
-- 修复"在冲突弹窗里点语义合并就跳走，导致 `svn update` 没被真正执行，落后远端的纯远程更新文件停留在旧版本"的问题：语义合并现在是冲突文件的第 4 种选择（与 mine/theirs/skip 并列），点"确认更新"后由更新流程托管成语义合并队列，逐个引导完成后再统一执行一次 svn update，已合并文件以 `--accept working` 解析
-- 修复"语义合并跳走后顶部 banner / 更新按钮卡在'检查中'，需要刷新页面才能再次触发更新"的问题：在更新流程各关键节点 + applyMerge 完成后主动重新检查远端版本
-- 修复"语义合并模式左侧文件列表显示了所有 .xml（包括非冲突的 battle_act_data），却没显示真正处于 SVN 冲突状态的 item_data"的问题：merge 模式默认只显示当前 SVN 冲突的 .xml，提供「全部 XML」切换；冲突文件用红色色点高亮，`get_modified_files` 也会把 conflicted 状态返回
+**SVN 冲突语义合并流程重做**
+- 真三方对比：检测到 SVN 文本冲突时，改用 `svn info --xml` 暴露的 `.r<old>` / `.mine` / `.r<new>` 旁路文件作为 BASE / MINE / THEIRS。修复此前工作副本已被 `<<<<<<<` 标记污染、`svn cat -r BASE` 返回更新后的 HEAD 而非真正祖先版本、导致三方对比完全错位的问题
+- 统一更新队列：语义合并成为冲突文件的第 4 种选择（与 keep mine / take theirs / skip 并列），点「确认更新」后交由更新流程托管成语义合并队列逐个引导，最后统一执行一次 `svn update`，已合并文件以 `--accept working` 解析。修复此前点语义合并就跳走、`svn update` 从未真正执行、落后远端的纯远程文件停在旧版本的问题
+- 聚焦待办：merge 模式只列出当前处于 SVN 冲突的 `.xml`（红色状态点高亮，`get_modified_files` 返回 conflicted 状态）；「只看待解决」默认开启，并永久屏蔽 4 类纯本地噪音行（`added_mine` / `added_both_same` / `removed_mine` / `removed_both`）
+- auto 决议可逐个 override：`auto_mine` / `auto_theirs` / `auto_both` 三种自动决议状态的 cell 也显示「保留我的 / 用远端 / 自定义」按钮（高亮当前默认侧），主要防止本地有未提交脏改时 `auto_mine` 把远端正确值默默丢掉；只有被改动过默认值的 cell 才会回传
+- 「无语义差异」引导：仅格式 / 空白 / 属性顺序差异（0 冲突 0 自动合并）的文件不再用带省略号的「正在合并…」让人误以为还在跑，而是给出行动式 banner + 绿色引导卡，一键完成 `svn resolve` 并推进队列
+- 更新流程各关键节点与 applyMerge 完成后主动重查远端版本，避免顶部 banner / 更新按钮卡在「检查中」
 
-**新功能**
-- 系统托盘运行：默认通过 `pythonw` / `--noconsole` 隐藏控制台窗口，主进程跑 pystray 托盘图标，右键菜单：打开浏览器 / 显示日志 / 打开工作目录 / 退出
-- 服务器输出重定向到 `logs/server.log`（轮转 3 × 1 MB）；想看实时日志可用新增的 `start_console.bat`（等价于 `python server.py --console`）
+**数据安全（高危修复）**
+- 修复语义合并队列结束后整目录 `svn update` 把 `<<<<<<<` / `=======` / `>>>>>>>` 标记冻进工作副本的严重数据损坏：SVN 会对这些文件重做三方 merge 再生成标记，而 `--accept working` 按设计不会清理标记，导致带标记的损坏 XML 被认定为「已解决」。新流程在整目录 update **之前**，对每个 semantic_file 单独 `svn resolve --accept working` + `svn update --accept working <file>` 把 BASE 推到 HEAD，整目录 update 不再 touch 它们
+- SVN 外部状态漂移防御：`/api/merge/preview` 返回 `merge_signature`（`is_conflict` + `theirs_revision` + `mine_mtime` 三元组指纹），`applyMerge` 时回传，后端发现指纹不一致即返回 HTTP 409 + `stale: true`，前端提示后自动重跑 preview；merge 模式额外 30s 自动轮询冲突列表。覆盖命令行 `svn resolve` / `svn update` / 外部编辑器保存等场景
+- 工作副本含 `<<<<<<<` / `=======` / `>>>>>>>` 标记、或 `.mine` 旁路被外部清掉时，给出清晰中文错误，而非 ElementTree 的 `not well-formed` ParseError
+- applyMerge 重入保护（`mergeApplyInFlight` + 按钮 disabled + 成功后清空 `mergeData` / `activeSheet`），避免队列前进 / svn update 期间重复 apply
 
-**内部改进**
-- 后端新增 `svn_helper.get_conflict_info()` 解析 `svn info --xml` 中的 `<conflict><prev-base-file/><prev-wc-file/><cur-base-file/></conflict>`
-- 后端新增 `/api/svn/conflicted` 接口；`/api/svn/update` 接受 `semantic_files` 参数
-- 前端新增 `state.updateContext` 队列、`_processNextSemantic` / `_finishSemanticQueue` / `cancelSemanticQueue` 等
-- 修复托盘模式下 Flask 启动横幅崩溃：`_StreamToLogger.write` 现在兼容 bytes / bytearray，并暴露 `encoding` / `isatty` / `fileno` / `writelines`，避免 `click.echo` 走 bytes 路径时把后台 Flask 线程整个打挂（用户看不到错误，但端口起不来）
-- 修复托盘模式下 svn / netstat / taskkill 子进程不停闪黑窗口：`svn_helper._run` / `_run_raw` / `_find_svn` 探测、以及 `server.kill_existing_on_port` 全部加上 `subprocess.CREATE_NO_WINDOW`（仅 Windows）
-- 修复对 SVN 冲突状态文件做语义合并时 `xml_merger.write_merged_xml` 直接 `ParseError`：原先把已被 `<<<<<<<` 标记污染的工作副本当模板解析，现在 `_resolve_merge_sources` 额外返回 `template_path`，冲突分支用 `.mine` 旁路文件（合法 XML 本地版本）作为模板，合并结果仍写回工作副本路径
-- 修复日志被 `[SVN] Using: svn` 刷屏：原先 `is_available()` 每次被调用（前端轮询 / 各 API 入口共 15 处）都打印一次，现在用 `_svn_announced` 标志只在首次探测成功时打印一次
-- 修复语义合并 apply 后弹窗显示「0 项决议」让人误以为没合并：原先弹窗的数字是「用户在界面上点过的 resolutions 条数」，不包含 `three_way_diff` 自动决议的非冲突合并（如 THEIRS 单方新增 / 单方修改）。后端 `/api/merge/apply` 新增 `total_changes` 字段统计真正写入文件的行级 ops 总数，前端弹窗改用这个数字；文案同步从「决议」改为「变更」
-- 语义合并视图收紧为「只显示需要处理的内容」：左侧文件列表移除「全部 XML」补救入口，永远只列 SVN 冲突文件（避免误点本地仅 modified 的文件后看到几百行 `added_mine` 空操作）；右上「只看待解决」开关默认勾选；新增 `isLocalNoiseRow` 永久屏蔽 4 种纯本地噪音行（`added_mine` / `added_both_same` / `removed_mine` / `removed_both`），取消勾选「只看待解决」时也只看「远端带来的变化 + 已决议项」
-- 语义合并 cell 决议按钮解锁：以前只有 `conflict` 状态的 cell 才能点「保留我的 / 用远端 / 自定义」，`auto_mine` / `auto_theirs` / `auto_both` 三种"自动决议"状态都锁死了。现在三种 auto 状态也显示决议按钮（默认值不变，按钮 selected 高亮当前用的是哪一边），用户取消「只看待解决」后可逐个核对并 override 自动决议——主要防止本地有未提交脏改时 `auto_mine` 把远端正确值默默丢掉。`collectResolutions` 通过新的 `isCellOverridden` 判断 cell 是否被用户改动过默认值，只发送被改动的 auto-cell 到 `/api/merge/apply`；README 中英补充 BASE / 本地 / 远端 含义 + 自动决议规则小节
-- 托盘「显示日志」改用浏览器打开内置的 `/log` 查看器：最新条目排在顶部、5 秒自动刷新、深色等宽字体顶栏带文件路径 / 行数 / 字节数 / 最后修改时间，比记事本更适合实时观察。`webbrowser.open` 失败时仍 fallback 到原有的记事本 / xdg-open 方式
-- 切换工作区新增全屏遮罩进度条：分「提交切换请求 → 加载文件列表 → 检查 SVN 状态」三个步骤展示，避免大仓库切换时用户误以为已经切完。SVN 三个 load（modified / classify / conflicted）改用 `Promise.allSettled` 等待全部完成再隐藏遮罩，单个 SVN 调用失败也不会卡住进度条
-- 修复语义合并队列中「格式改但无语义差异」文件卡住用户的问题：当文件只是格式 / 空白 / 属性顺序差异，三方对比为 0 冲突 0 自动合并、每个 sheet 都「无任何变更」时，原本顶部 banner 文案「正在合并 X (1/1)…」带省略号让人误以为程序还在跑、不敢动；现在 banner 改为行动式「请处理：X（第 1/N 个）— 完成后点工具栏右上『应用合并并保存』继续」，内容区在 sheet 之前插入显眼的「三方对比无语义差异」绿色引导卡，自带「确认无差异，完成此文件」主按钮，一键完成 svn resolve + 推进队列
-- 后端关键 API 补 INFO/WARNING 业务日志，方便从 `/log` 查看器回溯定位：`/api/workspaces/switch|add|remove` 记录切目录 / 工作区增删，`/api/merge/preview` 记录文件 + from_svn_conflict + auto/conflicts 计数，`/api/merge/apply` 记录 resolutions / total_changes / svn_resolved，`/api/merge/svn-mark-resolved` 记录 resolve 成败，`/api/svn/update` 记录入口（skip/theirs/mine/semantic 计数）与出口（updated/errors 计数）。异常分支统一 WARNING（含 file + err 摘要前 200 字符）
-- **关键数据损坏修复**：修复语义合并队列结束后整目录 `svn update` 把 `<<<<<<<` / `=======` / `>>>>>>>` 标记冻进工作副本的 bug。原流程是先 `svn update --accept postpone <整目录>` 再对 semantic_files 跑 `svn resolve --accept working`，但 SVN 会重新对 semantic_files 做三方 merge（BASE=旧版本 vs HEAD vs working）再次产生冲突标记，随后 `resolve --accept working` 接受当前工作副本时**不会清理冲突标记**（这是 SVN 设计语义），导致带标记的损坏 XML 被 SVN 认定为"已解决"。新流程：在整目录 `svn update` **之前**对每个 semantic_file 跑 `svn resolve --accept working` + `svn update --accept working <fpath>`，把 BASE 单独推到 HEAD，整目录 update 不再 touch 它们
-- 前端 applyMerge 加 reentry guard：`state.mergeApplyInFlight` + 按钮 disabled + 成功后立即清空 `state.mergeData / activeSheet`，避免队列前进 / svn update 期间用户重复点击触发对已被改动文件的二次 apply
-- 后端 `_resolve_merge_sources` fallback 路径检测工作副本是否含 `<<<<<<<` / `=======` / `>>>>>>>` 任一冲突标记前缀，含则报"工作副本文件含有 SVN 冲突标记，请手动清理或 `svn revert` 后重做"清晰错误，而不是让 ElementTree 抛 "not well-formed (invalid token): line 3, column 1"。SVN 旁路 `.mine` 也加上同样防御性检查
-- 新增 2 个回归测试覆盖这条数据损坏路径：`test_smart_update_semantic_files_promoted_first` 验证 semantic_files 必须在整目录 update 之前 resolve + update --accept working；`test_apply_rejects_poisoned_working_copy` 验证含冲突标记的工作副本被 apply 时报中文清晰错误而非 ParseError
-- 修复"本地有变更选中文件 → 切语义合并 tab → 弹假'三方对比无语义差异'卡 → 点'确认完成' / 队列推进时又把同一非冲突文件抓回来"的死循环：`setMode("merge")` 改 async，await `loadConflictedFiles` 之后如果当前选中文件不在 SVN 冲突列表里就清掉 `state.selectedFile`；同时把"无语义差异"绿色引导卡限定为只在 `from_svn_conflict=true` 时显示（非冲突文件按"确认完成"是空操作）
-- 侧栏底部新增可折叠的状态点颜色图例（红/绿/红/橙/灰 各代表 SVN 冲突 / 新增 / 删除 / 数据变更 / 仅元数据变更），点开后能一眼看清楚 5 种状态点的含义，特别是灰色"仅元数据变更"
-- **SVN 外部状态漂移防御**：预防用户在命令行做 `svn resolve` / `svn update` / 外部编辑器保存等操作后，SmartDiff 的 preview 缓存与磁盘真实状态不一致引发的静默数据错乱。`/api/merge/preview` 现在额外返回 `merge_signature`（由 `is_conflict` + `theirs_revision` + `mine_mtime` 组成的三元组指纹），客户端在 `applyMerge` 时回传；后端拿到新指纹与旧的不一致即返回 HTTP 409 + `stale: true`，前端 alert 提示后自动重跑 preview。覆盖的漂移场景：preview 冲突态 → apply 已 resolve、preview 非冲突 → apply 被 update 引入冲突、mtime 变化、远端 HEAD 被他人推进。merge 模式也加入 30s 自动轮询冲突列表
-- `static/js/app.js` 的 `api()` helper 在错误路径上现在把 HTTP status / 完整 JSON body 挂到抛出的 Error 上（`err.status` / `err.body`），既兼容现有 `alert(e.message)` 调用方又让 409 stale 等可恢复错误能被特殊处理
-- 新增 4 个 SVN 状态漂移测试：`test_apply_stale_signature_conflict_to_resolved`（外部 resolve 后冲突态翻转）、`test_apply_stale_signature_resolved_to_conflict`（外部 update 引入冲突）、`test_apply_stale_signature_mtime_changed`（mtime 被改）、`test_apply_mine_sidecar_vanished`（.mine 旁路被外部清掉时报"旁路文件"错误而非 ParseError）。共 26/26 测试通过
+**系统托盘运行**
+- 默认通过 `pythonw` / `--noconsole` 隐藏控制台，主进程跑 pystray 托盘图标，右键菜单：打开浏览器 / 显示日志 / 打开工作目录 / 退出
+- 托盘图标改用初音像素形象（脸部裁剪），与网页内 UI 一致，复用 `static/img/miku.svg`、无新依赖；解析失败回退内置占位图
+- 服务器输出重定向到 `logs/server.log`（轮转 3 × 1 MB）；需要实时控制台用新增的 `start_console.bat`（等价 `python server.py --console`）
+- 托盘「显示日志」改用浏览器打开内置 `/log` 查看器（最新在顶、5 秒自动刷新、深色等宽顶栏带路径 / 行数 / 字节 / 修改时间），`webbrowser.open` 失败时回退记事本 / xdg-open
+- svn / netstat / taskkill 子进程加 `subprocess.CREATE_NO_WINDOW`（仅 Windows）消除闪黑窗
+- 修复托盘模式下 Flask 启动横幅崩溃：`_StreamToLogger.write` 兼容 bytes / bytearray 并暴露 `encoding` / `isatty` / `fileno` / `writelines`，避免 `click.echo` 走 bytes 路径打挂后台 Flask 线程（端口起不来）
+
+**可用性 & 可观测性**
+- 切换工作区新增全屏遮罩进度条，分「提交切换请求 → 加载文件列表 → 检查 SVN 状态」三步；三个 SVN load 用 `Promise.allSettled` 等待全部完成，单个失败也不卡住
+- 侧栏底部新增可折叠的状态点颜色图例（红 / 绿 / 红 / 橙 / 灰 = SVN 冲突 / 新增 / 删除 / 数据变更 / 仅元数据变更）
+- apply 弹窗改用 `total_changes`（真正写入文件的行级 ops 数）展示，文案从「决议」改为「变更」，不再因只统计手动 resolutions 而误显示「0 项」
+- 关键 API 补 INFO/WARNING 业务日志便于从 `/log` 回溯：`/api/workspaces/switch|add|remove`、`/api/merge/preview|apply|svn-mark-resolved`、`/api/svn/update`（入口 skip/theirs/mine/semantic 计数 + 出口 updated/errors 计数）
+- 日志不再被 `[SVN] Using: svn` 刷屏：`is_available()` 改用 `_svn_announced` 标志只在首次探测成功时打印一次
+
+**内部 / API**
+- 新增 `svn_helper.get_conflict_info()` 解析 `svn info --xml` 的 `<conflict>` 旁路文件信息
+- 新增 `/api/svn/conflicted` 接口；`/api/svn/update` 接受 `semantic_files` 参数
+- 前端新增 `state.updateContext` 队列与 `_processNextSemantic` / `_finishSemanticQueue` / `cancelSemanticQueue`
+- `static/js/app.js` 的 `api()` helper 在错误路径上把 HTTP status / JSON body 挂到 Error（`err.status` / `err.body`），兼容现有 `alert(e.message)` 的同时让 409 stale 等可恢复错误可被特殊处理
+
+**测试**
+- `test_api_merge.py` 扩充到 26 个用例，新增数据损坏路径回归（`test_smart_update_semantic_files_promoted_first`、`test_apply_rejects_poisoned_working_copy`）与 4 项 SVN 外部漂移回归（冲突→已解决、已解决→冲突、mtime 变化、`.mine` 旁路消失）
 
 ## v1.4.2（2026-06-12）
 
