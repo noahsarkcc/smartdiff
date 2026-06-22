@@ -4,13 +4,12 @@ Usage:
   python .github/release_notes.py <tag> [prev_tag] > release_notes.md
   python .github/release_notes.py --title <tag>     # "vX.Y.Z - <summary>"
 
-- Extracts the "## vX.Y.Z" section of CHANGELOG.md for <tag> and drops
-  technical subsections (bold titles matching the blacklist below), so the
-  release page stays user-facing.
+- Extracts the "## vX.Y.Z" section of CHANGELOG.md for <tag> and turns it
+  into compact release highlights instead of dumping the full changelog.
 - Versions between prev_tag (exclusive) and <tag> that never got their own
   release are summarized as one "Also includes vX.Y.Z: <intro line>" each.
-- Ends with a compare link when the previous tag is known, otherwise falls
-  back to a "See CHANGELOG for details." link.
+- Always ends with a "See CHANGELOG for details." link, matching the older
+  release pages.
 """
 import re
 import sys
@@ -20,6 +19,9 @@ CHANGELOG = "CHANGELOG.md"
 
 # Bold subsection titles that are developer/infra detail, not user-facing.
 BLACKLIST = re.compile(r"tests?|api|infrastructure|internal|\bci\b", re.I)
+MAX_RELEASE_BULLETS = 5
+MAX_BULLETS_PER_SECTION = 2
+MAX_BULLET_CHARS = 480
 
 SECTION_RE = re.compile(r"^## v(\d+(?:\.\d+)*)([^\n]*)\n(.*?)(?=^## v|\Z)",
                         re.M | re.S)
@@ -63,6 +65,45 @@ def filter_technical(body: str) -> str:
     return text.strip()
 
 
+def compact_bullet(line: str) -> str:
+    """Keep one readable sentence per changelog bullet for release pages."""
+    text = line.strip()[2:].strip()
+    first_sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0].strip()
+    if len(first_sentence) > MAX_BULLET_CHARS:
+        first_sentence = first_sentence[:MAX_BULLET_CHARS].rsplit(" ", 1)[0].rstrip() + "..."
+    return f"- {first_sentence}"
+
+
+def compact_release_body(body: str) -> str:
+    """Build a short, GitHub-release-friendly body from a changelog section."""
+    intro = intro_line(body)
+    bullets = []
+    skipping = False
+    section_count = 0
+
+    for line in body.splitlines():
+        stripped = line.strip()
+        title = BOLD_TITLE_RE.match(stripped)
+        if title:
+            skipping = bool(BLACKLIST.search(title.group(1)))
+            section_count = 0
+            continue
+        if skipping or not stripped.startswith("- "):
+            continue
+        if section_count >= MAX_BULLETS_PER_SECTION:
+            section_count += 1
+            continue
+        bullets.append(compact_bullet(stripped))
+        section_count += 1
+        if len(bullets) >= MAX_RELEASE_BULLETS:
+            break
+
+    parts = [intro] if intro else []
+    if bullets:
+        parts.append("**Highlights**\n" + "\n".join(bullets))
+    return "\n\n".join(parts).strip() or filter_technical(body)
+
+
 def intro_line(body: str) -> str:
     """First plain text line of a section body (the one-liner summary)."""
     for line in body.splitlines():
@@ -96,7 +137,7 @@ def main():
 
     current = next((s for s in sections if s[0] == cur), None)
     if current:
-        parts.append(f"{current[1]}\n\n{filter_technical(current[2])}")
+        parts.append(f"{current[1]}\n\n{compact_release_body(current[2])}")
 
     if prev is not None:
         between = [s for s in sections if prev < s[0] < cur]
@@ -106,11 +147,8 @@ def main():
             parts.append(f"Also includes **{tag}**: {summary}" if summary
                          else f"Also includes **{tag}** (see CHANGELOG).")
 
-    if len(args) > 1 and args[1]:
-        parts.append(f"Full Changelog: https://github.com/{REPO}/compare/{args[1]}...{args[0]}")
-    else:
-        parts.append(f"See [CHANGELOG](https://github.com/{REPO}/blob/main/CHANGELOG.md) "
-                     f"for details.")
+    parts.append(f"See [CHANGELOG](https://github.com/{REPO}/blob/main/CHANGELOG.md) "
+                 f"for details.")
 
     sys.stdout.buffer.write(("\n\n".join(parts) + "\n").encode("utf-8"))
     return 0

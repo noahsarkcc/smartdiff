@@ -284,9 +284,10 @@ The resulting `dist/SmartDiff.exe` runs standalone, no Python required. `config.
 **Release body conventions** (`.github/release_notes.py`):
 
 - English only — the section is taken from `CHANGELOG.md`; the Chinese changelog stays in-repo
-- Bold subsections whose title matches the blacklist (Tests / API / infrastructure / internal / CI) are excluded from the release page, keeping only user-facing content such as New features / Bug fixes
+- The release page is a compact highlight summary: the one-line version intro plus at most 5 non-technical bullets (2 per changelog subsection)
+- Bold subsections whose title matches the blacklist (Tests / API / infrastructure / internal / CI) are excluded from the release page
 - When a release skips versions (intermediate versions never released on their own), each one is summarized as a single `Also includes vX.Y.Z: <intro line>` — so the first line under every version heading should be a one-sentence summary
-- A `Full Changelog` compare link is appended automatically (the previous tag is resolved with `git describe` in CI); technical details are covered by the compare page and the changelog
+- The body ends with `See CHANGELOG for details.`; technical details stay in `CHANGELOG.md`
 
 ---
 

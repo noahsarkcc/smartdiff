@@ -4,6 +4,11 @@
 
 All notable changes to SmartDiff are documented here. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+**Release tooling**
+- GitHub release notes are now generated as a compact highlight summary and once again end with `See CHANGELOG for details.`, matching the older release pages
+
 ## v1.5.0 (2026-06-17)
 
 Rebuilt SVN conflict semantic-merge flow + system tray.

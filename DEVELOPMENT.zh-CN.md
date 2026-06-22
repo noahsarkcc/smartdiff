@@ -284,9 +284,10 @@ pyinstaller --onefile --noconsole --add-data "static;static" --hidden-import pys
 **Release 正文约定**（`.github/release_notes.py`）：
 
 - 只取英文 `CHANGELOG.md` 的对应小节；中文版仅保留在仓库内
-- 标题命中黑名单（Tests / API / infrastructure / internal / CI）的粗体子节不上发布页，发布页只保留 New features / Bug fixes 等面向用户的内容
+- 发布页正文是精简 highlight：版本一句话简介 + 最多 5 条非技术 bullet（每个 changelog 小节最多 2 条）
+- 标题命中黑名单（Tests / API / infrastructure / internal / CI）的粗体子节不上发布页
 - 跳版本发布时（中间版本没单独发过 release），中间版本各以一行 `Also includes vX.Y.Z: <小节首行简介>` 带过，因此每个版本小节标题下的第一行应是一句话总结
-- 末尾自动附 `Full Changelog` compare 链接（上一个 tag 由 CI 里 `git describe` 取得），技术细节由 compare 页和 CHANGELOG 兜底
+- 正文末尾固定为 `See CHANGELOG for details.`；技术细节留在 `CHANGELOG.md`
 
 ---
 
