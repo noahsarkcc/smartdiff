@@ -193,6 +193,35 @@ def _resolve_merge_sources(fpath: str, theirs_rev_hint="HEAD") -> dict:
         "template_path": fpath,
     }
 
+
+def _compute_merge_signature(sources: dict, fpath: str) -> str:
+    """Build a fingerprint of "what merge inputs preview just resolved", so
+    /api/merge/apply can refuse to operate on a working copy whose SVN state
+    drifted between the two calls (e.g. user ran ``svn resolve`` on the side).
+
+    Three components:
+      - ``is_conflict``: whether the file is in SVN text-conflict state.
+        Flips on external ``svn resolve`` or ``svn update`` that introduces
+        a conflict.
+      - ``theirs_revision``: the remote revision THEIRS was resolved against.
+        Catches "remote HEAD moved between preview and apply" (someone else
+        committed).
+      - ``mine_mtime``: working-copy mtime in whole seconds. Catches
+        "user edited the file in another editor between preview and apply".
+
+    Returns a colon-joined string for compact JSON transport.
+    """
+    try:
+        mine_mtime = int(os.path.getmtime(fpath))
+    except OSError:
+        mine_mtime = 0
+    return "{0}:{1}:{2}".format(
+        int(bool(sources.get("is_conflict"))),
+        sources.get("theirs_revision") or 0,
+        mine_mtime,
+    )
+
+
 def _base_dir():
     """Return the base directory — handles both normal and PyInstaller frozen mode."""
     if getattr(sys, "frozen", False):
@@ -997,11 +1026,15 @@ def api_merge_preview():
     result["theirs_label"] = sources["theirs_label"]
     result["theirs_revision"] = sources["theirs_revision"]
     result["from_svn_conflict"] = sources["is_conflict"]
+    # Fingerprint of the resolved inputs; client must echo this back on
+    # /api/merge/apply so the backend can detect external SVN drift.
+    result["merge_signature"] = _compute_merge_signature(sources, fpath)
     summary = result.get("summary", {}) or {}
-    logger.info("Merge preview: file=%s from_svn_conflict=%s auto=%d conflicts=%d",
+    logger.info("Merge preview: file=%s from_svn_conflict=%s auto=%d conflicts=%d sig=%s",
                 filename, sources["is_conflict"],
                 int(summary.get("auto_resolved", 0)),
-                int(summary.get("conflicts", 0)))
+                int(summary.get("conflicts", 0)),
+                result["merge_signature"])
     return jsonify(result)
 
 
@@ -1036,6 +1069,24 @@ def api_merge_apply():
     except ValueError as e:
         logger.warning("Merge apply failed (sources): file=%s err=%s", filename, e)
         return jsonify({"error": str(e)}), 500
+
+    # Refuse to apply if SVN state drifted since preview (e.g. user ran
+    # `svn resolve` / external editor saved the file in another window).
+    # Sending no signature (legacy / curl) is allowed for backward compat.
+    client_sig = body.get("merge_signature")
+    if client_sig:
+        current_sig = _compute_merge_signature(sources, fpath)
+        if client_sig != current_sig:
+            logger.warning("Merge apply stale signature: file=%s client=%s current=%s",
+                           filename, client_sig, current_sig)
+            return jsonify({
+                "error": "\u6587\u4ef6\u72b6\u6001\u5728\u9884\u89c8\u4e4b\u540e\u88ab\u5916\u90e8\u6539\u53d8"
+                         "\uff08\u5982\u547d\u4ee4\u884c svn resolve / update / \u7f16\u8f91\u5668\u4fdd\u5b58\uff09\uff0c"
+                         "\u8bf7\u91cd\u65b0\u9884\u89c8\u540e\u518d\u5408\u5e76\u3002",
+                "stale": True,
+                "client_signature": client_sig,
+                "current_signature": current_sig,
+            }), 409
 
     try:
         hr = _get_header_row()

@@ -75,8 +75,14 @@ window.addEventListener("resize", () => { _fixScrollableHeight(); });
 async function api(url, opts) {
   const res = await fetch(API + url, opts);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    const err = new Error(body.error || res.statusText);
+    // Expose HTTP status + parsed body so callers can distinguish e.g. 409 stale
+    // from a generic 500. Existing `catch(e) { alert(e.message) }` callers are
+    // unaffected because the message remains the primary readable field.
+    err.status = res.status;
+    err.body = body;
+    throw err;
   }
   return res.json();
 }
@@ -631,7 +637,7 @@ async function _runUpdateAndReport(payload) {
   }
 }
 
-function _processNextSemantic() {
+async function _processNextSemantic() {
   const ctx = state.updateContext;
   if (!ctx || ctx.semanticQueue.length === 0) {
     _finishSemanticQueue();
@@ -645,7 +651,9 @@ function _processNextSemantic() {
   banner.style.display = "flex";
 
   state.mergeFromSvnConflict = true;
-  setMode("merge");
+  // 必须先 await setMode 完成 loadConflictedFiles，再 selectFile，避免 setMode 的非冲突清空在
+  // selectFile 之后触发把 selectedFile 清成 null 的竞态。
+  await setMode("merge");
   selectFile(fname);
 }
 
@@ -760,7 +768,7 @@ function renderFileList() {
 
 // ── Mode switching ──
 
-function setMode(mode) {
+async function setMode(mode) {
   state.mode = mode;
   document.querySelectorAll(".mode-tab").forEach(t => {
     t.classList.toggle("active", t.dataset.mode === mode);
@@ -782,8 +790,15 @@ function setMode(mode) {
     app.style.gridTemplateColumns = "320px 1fr";
   }
 
-  if (mode === "merge" && state.config && state.config.svn_available) {
-    loadConflictedFiles();
+  if (mode === "merge") {
+    if (state.config && state.config.svn_available) {
+      await loadConflictedFiles();
+    }
+    // 防死循环：进 merge 模式时清掉非冲突 selectedFile，避免对它跑 doMergePreview() 后弹假"无差异"卡
+    const list = state.conflictedFiles || [];
+    if (state.selectedFile && list.indexOf(state.selectedFile) < 0) {
+      state.selectedFile = null;
+    }
   }
 
   renderFileList();
@@ -1964,6 +1979,10 @@ async function applyMerge() {
         theirs_rev: state.mergeData.theirs_revision || state.mergeTheirsRev || "HEAD",
         resolutions: resolutions,
         mark_resolved: fromSvn,
+        // Echo back the fingerprint preview computed; backend rejects with 409
+        // if SVN state drifted in the meantime (external svn resolve / update /
+        // editor save).
+        merge_signature: state.mergeData.merge_signature || null,
       }),
     });
 
@@ -1996,6 +2015,19 @@ async function applyMerge() {
     loadConflictedFiles();
     checkRemoteVersion();
   } catch (e) {
+    // 409 stale signature: SVN state drifted externally between preview and
+    // apply. Alert the user, silently re-run preview so they see the fresh
+    // state before retrying. The re-preview will overwrite state.mergeData
+    // (which we already nulled above on the success path; on this path the
+    // try block threw before nulling, so mergeData still holds the stale copy
+    // — doMergePreview will replace it).
+    if (e && e.status === 409 && e.body && e.body.stale) {
+      alert(t('merge.staleSignature'));
+      try {
+        await doMergePreview();
+      } catch (_) { /* preview errors will surface their own alerts */ }
+      return;
+    }
     alert(t('merge.applyFailed', e.message));
   } finally {
     state.mergeApplyInFlight = false;
@@ -2162,7 +2194,9 @@ function renderMergeView(container) {
   // and there is no obvious next step. Surface a big "confirm & finish" CTA
   // so the user (especially mid-queue) does not feel stuck.
   const s = md.summary || {};
-  if ((s.conflicts || 0) === 0 && (s.auto_resolved || 0) === 0) {
+  // 仅在"该文件是 SVN 冲突态、但语义合并发现无任何冲突/自动合并"时显示确认完成横幅。
+  // 非冲突文件没有这个横幅意义（后端不会 svn resolve），避免假"无差异"卡 + 死循环。
+  if ((s.conflicts || 0) === 0 && (s.auto_resolved || 0) === 0 && md.from_svn_conflict) {
     html += `<div class="merge-noop-banner">
       <div class="title">${t('merge.noopTitle')}</div>
       <div class="hint">${t('merge.noopHint')}</div>
@@ -2486,11 +2520,11 @@ function renderMergeCell(sheetName, row, col, cell) {
   </div>`;
 }
 
-function openMergeFromConflict(fname) {
+async function openMergeFromConflict(fname) {
   // 兼容旧入口（如果还有从外部调用），直接打开 merge 视图
   closeUpdateModal();
   state.mergeFromSvnConflict = true;
-  setMode("merge");
+  await setMode("merge");
   selectFile(fname);
 }
 
@@ -2759,6 +2793,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (_refreshCycle % 10 === 0 && state.config && state.config.svn_available && !state.loading) {
       loadModifiedClassify();
+      // 30 秒在 merge 模式也刷一次 SVN 冲突列表，捕获用户在命令行 svn resolve
+      // 之后的状态变化（否则列表会停在 setMode 时拉的快照上）。
+      if (state.mode === "merge") loadConflictedFiles();
     }
     if (!state.selectedFile || state.loading) return;
     if (state.mode !== "local" && state.mode !== "browse") return;

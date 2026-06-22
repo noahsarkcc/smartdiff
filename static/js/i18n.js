@@ -254,6 +254,15 @@ const I18N_MESSAGES = {
     'dot.dataChange': '数据变更',
     'dot.metaChange': '仅元数据变更',
 
+    'legend.title': '状态点说明',
+    'legend.conflicted': 'SVN 冲突（需要解决）',
+    'legend.added': '新增文件',
+    'legend.deleted': '已删除',
+    'legend.dataChange': '数据变更',
+    'legend.metaChange': '仅元数据变更（属性等）',
+
+    'merge.staleSignature': '文件在预览后状态被外部改变（如命令行 svn resolve / update / 编辑器保存），已自动重新拉取最新状态，请确认后再合并',
+
     'workspace.switchFailed': '切换工作区失败: {0}',
     'workspace.addFailed': '添加工作区失败: {0}',
     'workspace.switching': '切换到 "{0}" 中...',
@@ -528,6 +537,15 @@ const I18N_MESSAGES = {
     'dot.deleted': 'Deleted',
     'dot.dataChange': 'Data change',
     'dot.metaChange': 'Metadata change only',
+
+    'legend.title': 'Legend',
+    'legend.conflicted': 'SVN conflict (needs resolution)',
+    'legend.added': 'New file',
+    'legend.deleted': 'Deleted',
+    'legend.dataChange': 'Data change',
+    'legend.metaChange': 'Metadata-only change (attributes etc.)',
+
+    'merge.staleSignature': 'File state changed externally since preview (e.g. svn resolve / update / editor save from CLI). Reloaded latest state automatically, please review before merging.',
 
     'workspace.switchFailed': 'Failed to switch workspace: {0}',
     'workspace.addFailed': 'Failed to add workspace: {0}',

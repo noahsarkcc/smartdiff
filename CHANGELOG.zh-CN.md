@@ -36,7 +36,12 @@ SVN 冲突合并流程重做 + 系统托盘运行。
 - **关键数据损坏修复**：修复语义合并队列结束后整目录 `svn update` 把 `<<<<<<<` / `=======` / `>>>>>>>` 标记冻进工作副本的 bug。原流程是先 `svn update --accept postpone <整目录>` 再对 semantic_files 跑 `svn resolve --accept working`，但 SVN 会重新对 semantic_files 做三方 merge（BASE=旧版本 vs HEAD vs working）再次产生冲突标记，随后 `resolve --accept working` 接受当前工作副本时**不会清理冲突标记**（这是 SVN 设计语义），导致带标记的损坏 XML 被 SVN 认定为"已解决"。新流程：在整目录 `svn update` **之前**对每个 semantic_file 跑 `svn resolve --accept working` + `svn update --accept working <fpath>`，把 BASE 单独推到 HEAD，整目录 update 不再 touch 它们
 - 前端 applyMerge 加 reentry guard：`state.mergeApplyInFlight` + 按钮 disabled + 成功后立即清空 `state.mergeData / activeSheet`，避免队列前进 / svn update 期间用户重复点击触发对已被改动文件的二次 apply
 - 后端 `_resolve_merge_sources` fallback 路径检测工作副本是否含 `<<<<<<<` / `=======` / `>>>>>>>` 任一冲突标记前缀，含则报"工作副本文件含有 SVN 冲突标记，请手动清理或 `svn revert` 后重做"清晰错误，而不是让 ElementTree 抛 "not well-formed (invalid token): line 3, column 1"。SVN 旁路 `.mine` 也加上同样防御性检查
-- 新增 2 个回归测试覆盖这条数据损坏路径：`test_smart_update_semantic_files_promoted_first` 验证 semantic_files 必须在整目录 update 之前 resolve + update --accept working；`test_apply_rejects_poisoned_working_copy` 验证含冲突标记的工作副本被 apply 时报中文清晰错误而非 ParseError。共 22/22 测试通过
+- 新增 2 个回归测试覆盖这条数据损坏路径：`test_smart_update_semantic_files_promoted_first` 验证 semantic_files 必须在整目录 update 之前 resolve + update --accept working；`test_apply_rejects_poisoned_working_copy` 验证含冲突标记的工作副本被 apply 时报中文清晰错误而非 ParseError
+- 修复"本地有变更选中文件 → 切语义合并 tab → 弹假'三方对比无语义差异'卡 → 点'确认完成' / 队列推进时又把同一非冲突文件抓回来"的死循环：`setMode("merge")` 改 async，await `loadConflictedFiles` 之后如果当前选中文件不在 SVN 冲突列表里就清掉 `state.selectedFile`；同时把"无语义差异"绿色引导卡限定为只在 `from_svn_conflict=true` 时显示（非冲突文件按"确认完成"是空操作）
+- 侧栏底部新增可折叠的状态点颜色图例（红/绿/红/橙/灰 各代表 SVN 冲突 / 新增 / 删除 / 数据变更 / 仅元数据变更），点开后能一眼看清楚 5 种状态点的含义，特别是灰色"仅元数据变更"
+- **SVN 外部状态漂移防御**：预防用户在命令行做 `svn resolve` / `svn update` / 外部编辑器保存等操作后，SmartDiff 的 preview 缓存与磁盘真实状态不一致引发的静默数据错乱。`/api/merge/preview` 现在额外返回 `merge_signature`（由 `is_conflict` + `theirs_revision` + `mine_mtime` 组成的三元组指纹），客户端在 `applyMerge` 时回传；后端拿到新指纹与旧的不一致即返回 HTTP 409 + `stale: true`，前端 alert 提示后自动重跑 preview。覆盖的漂移场景：preview 冲突态 → apply 已 resolve、preview 非冲突 → apply 被 update 引入冲突、mtime 变化、远端 HEAD 被他人推进。merge 模式也加入 30s 自动轮询冲突列表
+- `static/js/app.js` 的 `api()` helper 在错误路径上现在把 HTTP status / 完整 JSON body 挂到抛出的 Error 上（`err.status` / `err.body`），既兼容现有 `alert(e.message)` 调用方又让 409 stale 等可恢复错误能被特殊处理
+- 新增 4 个 SVN 状态漂移测试：`test_apply_stale_signature_conflict_to_resolved`（外部 resolve 后冲突态翻转）、`test_apply_stale_signature_resolved_to_conflict`（外部 update 引入冲突）、`test_apply_stale_signature_mtime_changed`（mtime 被改）、`test_apply_mine_sidecar_vanished`（.mine 旁路被外部清掉时报"旁路文件"错误而非 ParseError）。共 26/26 测试通过
 
 ## v1.4.2（2026-06-12）
 

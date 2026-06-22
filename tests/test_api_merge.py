@@ -580,6 +580,235 @@ def test_apply_rejects_poisoned_working_copy():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+# ── 7. SVN 状态漂移防御（preview/apply signature 校验） ────
+
+
+def _conflict_workdir():
+    """Build a working copy that is in SVN text-conflict state, complete with
+    poisoned working copy + three sidecar files. Returns (workdir, fpath,
+    conflict_info)."""
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    fpath = os.path.join(workdir, "items.xml")
+    with open(fpath, "w", encoding="utf-8") as f:
+        f.write("<<<<<<< .mine\nstill broken\n=======\nstill broken\n>>>>>>> .r2\n")
+    mine_sidecar = os.path.join(workdir, "items.xml.mine")
+    base_sidecar = os.path.join(workdir, "items.xml.r1")
+    theirs_sidecar = os.path.join(workdir, "items.xml.r2")
+    shutil.copy(MINE_PATH, mine_sidecar)
+    shutil.copy(BASE_PATH, base_sidecar)
+    shutil.copy(THEIRS_PATH, theirs_sidecar)
+    conflict_info = {
+        "is_text_conflict": True,
+        "base_file": base_sidecar,
+        "mine_file": mine_sidecar,
+        "theirs_file": theirs_sidecar,
+        "base_rev": 1,
+        "theirs_rev": 2,
+    }
+    return workdir, fpath, conflict_info
+
+
+@t("apply: preview 冲突态 -> apply 已被外部 svn resolve（漂移）-> 409 stale")
+def test_apply_stale_signature_conflict_to_resolved():
+    """Drift-1: preview saw SVN text conflict; between preview and apply, the
+    user ran ``svn resolve`` from the command line so the conflict vanished
+    (and the .mine sidecar was deleted by SVN). The fingerprint flips
+    is_conflict 1 -> 0 and apply must refuse with 409."""
+    workdir, fpath, conflict_info = _conflict_workdir()
+    try:
+        client = server.app.test_client()
+        base_bytes = open(BASE_PATH, "rb").read()
+        theirs_bytes = open(THEIRS_PATH, "rb").read()
+        # First call (preview) returns conflict_info; second (apply) None.
+        calls = {"n": 0}
+        def conflict_side_effect(_path):
+            calls["n"] += 1
+            return conflict_info if calls["n"] == 1 else None
+
+        with patch.object(server, "_get_work_dir", return_value=workdir), \
+             patch.object(svn_helper, "is_available", return_value=True), \
+             patch.object(svn_helper, "get_conflict_info",
+                          side_effect=conflict_side_effect), \
+             patch.object(svn_helper, "get_base_content_raw",
+                          return_value=base_bytes), \
+             patch.object(svn_helper, "get_svn_info",
+                          return_value={"url": "file:///x", "revision": "1"}), \
+             patch.object(svn_helper, "get_remote_head_revision", return_value=42), \
+             patch.object(svn_helper, "get_file_at_revision_raw",
+                          return_value=theirs_bytes):
+            r1 = client.post("/api/merge/preview", json={"file": "items.xml"})
+            assert r1.status_code == 200, r1.get_data(as_text=True)
+            sig = r1.get_json().get("merge_signature")
+            assert sig and sig.startswith("1:"), f"unexpected preview signature {sig!r}"
+
+            # Simulate external `svn resolve --accept theirs-full`: the
+            # working copy becomes a clean XML (theirs content).
+            shutil.copy(THEIRS_PATH, fpath)
+
+            r2 = client.post("/api/merge/apply", json={
+                "file": "items.xml",
+                "resolutions": [],
+                "merge_signature": sig,
+            })
+            assert r2.status_code == 409, (
+                f"expected 409, got {r2.status_code}: {r2.get_data(as_text=True)}")
+            body = r2.get_json()
+            assert body.get("stale") is True
+            assert "\u5916\u90e8" in body.get("error", ""), \
+                f"error should mention 外部, got: {body.get('error')!r}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@t("apply: preview 非冲突 -> apply 被外部 svn update 引入冲突 -> 409 stale")
+def test_apply_stale_signature_resolved_to_conflict():
+    """Drift-2: preview saw a clean working copy (no SVN conflict); between
+    preview and apply, the user ran ``svn update`` from the command line
+    which introduced a text conflict. The fingerprint flips is_conflict
+    0 -> 1 and apply must refuse with 409."""
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    try:
+        fpath = os.path.join(workdir, "items.xml")
+        shutil.copy(MINE_PATH, fpath)
+        base_bytes = open(BASE_PATH, "rb").read()
+        theirs_bytes = open(THEIRS_PATH, "rb").read()
+
+        # First call (preview): no conflict; second (apply): conflict appeared.
+        mine_sidecar = os.path.join(workdir, "items.xml.mine")
+        base_sidecar = os.path.join(workdir, "items.xml.r1")
+        theirs_sidecar = os.path.join(workdir, "items.xml.r2")
+        shutil.copy(MINE_PATH, mine_sidecar)
+        shutil.copy(BASE_PATH, base_sidecar)
+        shutil.copy(THEIRS_PATH, theirs_sidecar)
+        conflict_info = {
+            "is_text_conflict": True,
+            "base_file": base_sidecar,
+            "mine_file": mine_sidecar,
+            "theirs_file": theirs_sidecar,
+            "base_rev": 1, "theirs_rev": 2,
+        }
+        calls = {"n": 0}
+        def conflict_side_effect(_path):
+            calls["n"] += 1
+            return None if calls["n"] == 1 else conflict_info
+
+        client = server.app.test_client()
+        with patch.object(server, "_get_work_dir", return_value=workdir), \
+             patch.object(svn_helper, "is_available", return_value=True), \
+             patch.object(svn_helper, "get_conflict_info",
+                          side_effect=conflict_side_effect), \
+             patch.object(svn_helper, "get_base_content_raw",
+                          return_value=base_bytes), \
+             patch.object(svn_helper, "get_svn_info",
+                          return_value={"url": "file:///x", "revision": "1"}), \
+             patch.object(svn_helper, "get_remote_head_revision", return_value=42), \
+             patch.object(svn_helper, "get_file_at_revision_raw",
+                          return_value=theirs_bytes):
+            r1 = client.post("/api/merge/preview", json={"file": "items.xml"})
+            assert r1.status_code == 200, r1.get_data(as_text=True)
+            sig = r1.get_json().get("merge_signature")
+            assert sig and sig.startswith("0:"), f"unexpected preview signature {sig!r}"
+
+            # External `svn update` poisoned the working copy with conflict markers.
+            with open(fpath, "w", encoding="utf-8") as f:
+                f.write("<<<<<<< .mine\nbroken\n=======\nbroken\n>>>>>>> .r2\n")
+
+            r2 = client.post("/api/merge/apply", json={
+                "file": "items.xml",
+                "resolutions": [],
+                "merge_signature": sig,
+            })
+            assert r2.status_code == 409, (
+                f"expected 409, got {r2.status_code}: {r2.get_data(as_text=True)}")
+            body = r2.get_json()
+            assert body.get("stale") is True
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@t("apply: preview 后工作副本 mtime 被外部编辑变化 -> 409 stale")
+def test_apply_stale_signature_mtime_changed():
+    """Drift-4: preview ran against working copy at mtime T; user opened the
+    file in another editor and saved (or `touch`-ed it via CLI). mtime
+    component of the signature differs and apply must refuse with 409."""
+    workdir = tempfile.mkdtemp(prefix="xmldev_test_")
+    try:
+        fpath = os.path.join(workdir, "items.xml")
+        shutil.copy(MINE_PATH, fpath)
+        base_bytes = open(BASE_PATH, "rb").read()
+        theirs_bytes = open(THEIRS_PATH, "rb").read()
+        client = server.app.test_client()
+        with patch.object(server, "_get_work_dir", return_value=workdir), \
+             patch.object(svn_helper, "is_available", return_value=True), \
+             patch.object(svn_helper, "get_conflict_info", return_value=None), \
+             patch.object(svn_helper, "get_base_content_raw",
+                          return_value=base_bytes), \
+             patch.object(svn_helper, "get_svn_info",
+                          return_value={"url": "file:///x", "revision": "1"}), \
+             patch.object(svn_helper, "get_remote_head_revision", return_value=42), \
+             patch.object(svn_helper, "get_file_at_revision_raw",
+                          return_value=theirs_bytes):
+            r1 = client.post("/api/merge/preview", json={"file": "items.xml"})
+            assert r1.status_code == 200, r1.get_data(as_text=True)
+            sig = r1.get_json().get("merge_signature")
+            assert sig, "preview should return a merge_signature"
+
+            # Bump mtime forward by 10s to mimic an external save.
+            current_mtime = os.path.getmtime(fpath)
+            os.utime(fpath, (current_mtime + 10, current_mtime + 10))
+
+            r2 = client.post("/api/merge/apply", json={
+                "file": "items.xml",
+                "resolutions": [],
+                "merge_signature": sig,
+            })
+            assert r2.status_code == 409, (
+                f"expected 409, got {r2.status_code}: {r2.get_data(as_text=True)}")
+            body = r2.get_json()
+            assert body.get("stale") is True
+            assert body.get("client_signature") != body.get("current_signature")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@t("apply: preview .mine 旁路在 -> apply 被外部清掉 -> 500 含 '旁路文件'")
+def test_apply_mine_sidecar_vanished():
+    """Drift-3: preview saw the conflict and read the .mine sidecar; user ran
+    ``svn resolve`` from the command line which made SVN delete the
+    sidecars BUT for some reason ``get_conflict_info`` still reports the
+    conflict (e.g. stale `.svn/wc.db` cache, race). _read_bytes(mine_file)
+    returns None and _resolve_merge_sources should raise the friendly
+    'cannot read sidecar file' ValueError, surfaced as 500.
+
+    This is a different failure mode from Drift-1: signature won't catch
+    it because get_conflict_info still says conflict, but _read_bytes
+    raises first."""
+    workdir, fpath, conflict_info = _conflict_workdir()
+    try:
+        # Delete the .mine sidecar between preview and apply by deleting it
+        # *before* calling apply. We do not run preview here because the goal
+        # is just to verify the apply-path error path is clean.
+        os.remove(conflict_info["mine_file"])
+
+        client = server.app.test_client()
+        with patch.object(server, "_get_work_dir", return_value=workdir), \
+             patch.object(svn_helper, "is_available", return_value=True), \
+             patch.object(svn_helper, "get_conflict_info",
+                          return_value=conflict_info):
+            r = client.post("/api/merge/apply", json={
+                "file": "items.xml",
+                "resolutions": [],
+            })
+        assert r.status_code == 500, (
+            f"expected 500, got {r.status_code}: {r.get_data(as_text=True)}")
+        body = r.get_json()
+        err = (body or {}).get("error", "")
+        assert "\u65c1\u8def\u6587\u4ef6" in err, (
+            f"error should mention 旁路文件, got: {err!r}")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 # ── /log smoke test ────────────────────────────────────
 
 
@@ -636,7 +865,13 @@ def main():
     test_smart_update_semantic_files_promoted_first()
     test_apply_rejects_poisoned_working_copy()
 
-    section("7. /log 查看器")
+    section("7. SVN 状态漂移防御")
+    test_apply_stale_signature_conflict_to_resolved()
+    test_apply_stale_signature_resolved_to_conflict()
+    test_apply_stale_signature_mtime_changed()
+    test_apply_mine_sidecar_vanished()
+
+    section("8. /log 查看器")
     test_log_view_no_file()
 
     print()
